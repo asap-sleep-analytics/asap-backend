@@ -1,0 +1,38 @@
+services:
+  db:
+    container_name: asap-postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: asap
+      POSTGRES_USER: asap
+      POSTGRES_PASSWORD: asap
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asap -d asap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    container_name: asap-backend
+    build:
+      context: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://asap:asap@db:5432/asap}
+      - AUTO_CREATE_TABLES=${AUTO_CREATE_TABLES:-true}
+
+volumes:
+  postgres_data:

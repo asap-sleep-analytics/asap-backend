@@ -6,8 +6,10 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.db.base import Base
 from app.db.models.lead import Lead  # noqa: F401
+from app.db.models.sleep_detection_log import SleepDetectionLog  # noqa: F401
 from app.db.models.sleep_session import SleepSession  # noqa: F401
 from app.db.models.user import User  # noqa: F401
+from app.db.models.user_feedback import UserFeedback  # noqa: F401
 
 config = context.config
 

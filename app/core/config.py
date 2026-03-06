@@ -82,9 +82,17 @@ class Settings(BaseModel):
     )
     auth_algorithm: str = Field(default_factory=lambda: os.getenv("AUTH_ALGORITHM", "HS256"))
     auth_access_token_expires_minutes: int = Field(
-        default_factory=lambda: _env_int("AUTH_ACCESS_TOKEN_EXPIRES_MINUTES", 60)
+        default_factory=lambda: _env_int("AUTH_ACCESS_TOKEN_EXPIRES_MINUTES", 60 * 24 * 30)
     )
     auth_issuer: str = Field(default_factory=lambda: os.getenv("AUTH_ISSUER", "asap-backend"))
+
+    admin_dataset_export_key: str = Field(
+        default_factory=lambda: os.getenv("ADMIN_DATASET_EXPORT_KEY", "asap-admin-dev-key")
+    )
+
+    ml_sleep_model_path: str = Field(
+        default_factory=lambda: os.getenv("ML_SLEEP_MODEL_PATH", str(BASE_DIR / "artifacts" / "sleep_model.joblib"))
+    )
 
 
 settings = Settings()

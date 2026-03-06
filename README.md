@@ -37,8 +37,28 @@ Sueño (MVP):
 
 - `POST /api/sleep/calibracion`
 - `POST /api/sleep/sesiones/iniciar` (Bearer)
+- `POST /api/sleep/sesiones/{session_id}/fragmento` (Bearer, multipart UploadFile)
 - `POST /api/sleep/sesiones/{session_id}/finalizar` (Bearer)
 - `GET /api/sleep/sesiones?limit=20` (Bearer)
+
+### Pipeline de Analisis de Fragmentos
+
+Al cerrar una sesion (`/finalizar`), el backend ejecuta:
+
+1. Consolidacion de archivos temporales por `session_id`.
+2. Pre-procesamiento DSP con `librosa`:
+  - normalizacion,
+  - eliminacion de silencio,
+  - extraccion MFCC (20 coeficientes).
+3. Inferencia por ventanas de tiempo:
+  - modelo Scikit-Learn si existe (`ML_SLEEP_MODEL_PATH`),
+  - fallback heuristico por amplitud dB si el modelo no esta entrenado.
+4. Scoring final basado en duracion y penalizacion por apnea/ronquido.
+5. Persistencia de eventos y confianza en `sleep_detection_logs`.
+6. Limpieza de fragmentos temporales en disco tras guardar resultados.
+
+Nota:
+El log de confianza permite trazabilidad de inferencia y prepara el camino para futuros ciclos de feedback del usuario para re-entrenamiento.
 
 Ejemplo de registro:
 

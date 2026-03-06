@@ -54,3 +54,55 @@ class SleepSessionResponse(BaseModel):
     ok: bool = True
     mensaje: str
     sesion: SleepSessionRecord
+
+
+class SleepFragmentRecord(BaseModel):
+    session_id: str
+    fragment_index: int
+    filename: str
+    bytes_size: int
+    duration_seconds: float | None
+    queued_fragments: int
+    created_at: datetime
+
+
+class SleepFragmentUploadResponse(BaseModel):
+    ok: bool = True
+    mensaje: str
+    fragmento: SleepFragmentRecord
+
+
+class SleepDetectionLogRecord(BaseModel):
+    log_id: int
+    session_id: str
+    window_index: int
+    start_second: float
+    end_second: float
+    label: str
+    confidence_score: float
+    model_source: str
+    model_version: str | None
+    created_at: datetime
+
+
+class SleepFeedbackRequest(BaseModel):
+    calificacion_descanso: int = Field(..., ge=1, le=5)
+    desperto_cansado: bool | None = None
+    comentario: str | None = Field(default=None, max_length=500)
+
+
+class SleepFeedbackRecord(BaseModel):
+    feedback_id: int
+    session_id: str
+    user_id: str
+    calificacion_descanso: int
+    desperto_cansado: bool | None
+    comentario: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SleepFeedbackResponse(BaseModel):
+    ok: bool = True
+    mensaje: str
+    feedback: SleepFeedbackRecord

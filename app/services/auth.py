@@ -1,3 +1,6 @@
+import secrets
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,21 +15,36 @@ def _to_public_user(user: User) -> UserPublic:
         nombre_completo=user.full_name,
         email=user.email,
         activo=user.is_active,
+        ronca_habitualmente=user.ronca_habitualmente,
+        cansancio_diurno=user.cansancio_diurno,
         creado_en=user.created_at,
     )
 
 
 def register_user(db: Session, payload: UserRegisterRequest) -> AuthTokenResponse:
+    if not payload.acepta_consentimiento_datos:
+        raise ValueError("Debes aceptar el consentimiento informado (Ley 1581) para crear la cuenta.")
+
+    if not payload.acepta_disclaimer_medico:
+        raise ValueError("Debes aceptar el disclaimer médico para continuar.")
+
     normalized_email = payload.email.strip().lower()
     existing = db.scalar(select(User).where(User.email == normalized_email))
     if existing:
         raise ValueError("Ya existe una cuenta registrada con este correo.")
+
+    now = datetime.now(timezone.utc)
 
     user = User(
         full_name=payload.nombre_completo.strip(),
         email=normalized_email,
         password_hash=hash_password(payload.password),
         is_active=True,
+        share_token=secrets.token_urlsafe(24),
+        ronca_habitualmente=payload.ronca_habitualmente,
+        cansancio_diurno=payload.cansancio_diurno,
+        informed_consent_at=now,
+        medical_disclaimer_accepted_at=now,
     )
     db.add(user)
     db.commit()

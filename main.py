@@ -7,6 +7,7 @@ from app.api.routes.analyze import router as analyze_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.leads import router as leads_router
+from app.api.routes.sleep import router as sleep_router
 from app.core.config import settings
 from app.db.init_db import init_db
 
@@ -36,6 +37,7 @@ app.include_router(analyze_router)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(leads_router)
+app.include_router(sleep_router)
 
 
 @app.get("/health", tags=["health"])

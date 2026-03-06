@@ -42,6 +42,10 @@ def test_registro_exitoso(client: TestClient) -> None:
             "nombre_completo": "Alejandro Usuario",
             "email": "alejandro.auth@example.com",
             "password": "ClaveSegura123",
+            "ronca_habitualmente": True,
+            "cansancio_diurno": True,
+            "acepta_consentimiento_datos": True,
+            "acepta_disclaimer_medico": True,
         },
     )
 
@@ -50,6 +54,7 @@ def test_registro_exitoso(client: TestClient) -> None:
     assert body["ok"] is True
     assert body["access_token"]
     assert body["usuario"]["email"] == "alejandro.auth@example.com"
+    assert body["usuario"]["ronca_habitualmente"] is True
 
 
 def test_registro_duplicado(client: TestClient) -> None:
@@ -57,6 +62,10 @@ def test_registro_duplicado(client: TestClient) -> None:
         "nombre_completo": "Cuenta Duplicada",
         "email": "duplicado@example.com",
         "password": "ClaveSegura123",
+        "ronca_habitualmente": False,
+        "cansancio_diurno": False,
+        "acepta_consentimiento_datos": True,
+        "acepta_disclaimer_medico": True,
     }
 
     first = client.post("/api/auth/registro", json=payload)
@@ -73,6 +82,10 @@ def test_login_y_perfil(client: TestClient) -> None:
             "nombre_completo": "Perfil Usuario",
             "email": "perfil@example.com",
             "password": "ClaveSegura123",
+            "ronca_habitualmente": False,
+            "cansancio_diurno": True,
+            "acepta_consentimiento_datos": True,
+            "acepta_disclaimer_medico": True,
         },
     )
 
@@ -106,3 +119,18 @@ def test_login_invalido(client: TestClient) -> None:
     )
 
     assert response.status_code == 401
+
+
+def test_registro_rechazado_sin_consentimiento(client: TestClient) -> None:
+    response = client.post(
+        "/api/auth/registro",
+        json={
+            "nombre_completo": "Sin Consentimiento",
+            "email": "sin.consentimiento@example.com",
+            "password": "ClaveSegura123",
+            "acepta_consentimiento_datos": False,
+            "acepta_disclaimer_medico": True,
+        },
+    )
+
+    assert response.status_code == 400

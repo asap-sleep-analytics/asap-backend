@@ -33,6 +33,13 @@ Dashboard:
 
 - `GET /api/dashboard/resumen` (requiere `Authorization: Bearer <token>`)
 
+Sueño (MVP):
+
+- `POST /api/sleep/calibracion`
+- `POST /api/sleep/sesiones/iniciar` (Bearer)
+- `POST /api/sleep/sesiones/{session_id}/finalizar` (Bearer)
+- `GET /api/sleep/sesiones?limit=20` (Bearer)
+
 Ejemplo de registro:
 
 ```json
@@ -111,6 +118,14 @@ Nota:
 4. Lead cambia de `pending` a `confirmed`.
 
 Si SMTP no esta configurado, la API devuelve `confirmation_url_preview` para pruebas locales.
+
+## Flujo MVP De Monitoreo
+
+1. Registro/Login con onboarding breve de sueño y consentimiento legal.
+2. Calibracion de microfono por nivel de ruido ambiente.
+3. Inicio de sesion nocturna (`/api/sleep/sesiones/iniciar`).
+4. Finalizacion de sesion y score inmediato (`/api/sleep/sesiones/{id}/finalizar`).
+5. Dashboard con 3 indicadores: Sleep Score, eventos apnea/ronquido y continuidad nocturna.
 
 ## SMTP En Produccion
 

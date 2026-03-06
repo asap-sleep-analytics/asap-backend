@@ -18,7 +18,10 @@ def register_user_endpoint(
     try:
         return register_user(db=db, payload=payload)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        detail = str(exc)
+        if "Ya existe una cuenta" in detail:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
 
 
 @router.post("/login", response_model=AuthTokenResponse)

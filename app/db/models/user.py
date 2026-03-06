@@ -15,6 +15,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    share_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+
+    ronca_habitualmente: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cansancio_diurno: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    informed_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    medical_disclaimer_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

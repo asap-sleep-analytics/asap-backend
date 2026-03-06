@@ -11,6 +11,16 @@ class UserRegisterRequest(BaseModel):
         description="Correo del usuario.",
     )
     password: str = Field(..., min_length=8, max_length=128)
+    ronca_habitualmente: bool = Field(default=False)
+    cansancio_diurno: bool = Field(default=False)
+    acepta_consentimiento_datos: bool = Field(
+        default=False,
+        description="Consentimiento informado para tratamiento de datos (Ley 1581).",
+    )
+    acepta_disclaimer_medico: bool = Field(
+        default=False,
+        description="Confirmación de que la app no reemplaza diagnóstico clínico profesional.",
+    )
 
 
 class UserLoginRequest(BaseModel):
@@ -23,6 +33,8 @@ class UserPublic(BaseModel):
     nombre_completo: str
     email: str
     activo: bool
+    ronca_habitualmente: bool
+    cansancio_diurno: bool
     creado_en: datetime
 
 

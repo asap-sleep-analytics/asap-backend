@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 import joblib
@@ -13,6 +14,8 @@ from app.services.audio_processor import SessionAudioBatch
 LABEL_NORMAL = "Normal"
 LABEL_SNORE = "Ronquido"
 LABEL_APNEA = "Apnea"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -65,7 +68,8 @@ class SleepModel:
 
         try:
             self._model = joblib.load(self._model_path)
-        except Exception:
+        except Exception as exc:
+            logger.warning("No se pudo cargar modelo ML desde %s: %s", self._model_path, exc)
             self._model = None
 
     @property
@@ -81,8 +85,8 @@ class SleepModel:
         if self._model is not None:
             try:
                 return self._predict_with_model(batch)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Fallo en inferencia del modelo; usando heurística: %s", exc)
 
         return self._predict_with_heuristic(batch)
 

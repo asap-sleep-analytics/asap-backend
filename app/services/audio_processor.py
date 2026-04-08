@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 import shutil
 
@@ -11,6 +12,8 @@ AUDIO_FRAGMENT_EXTENSIONS = {".m4a", ".wav", ".aac", ".mp4", ".caf", ".flac", ".
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MFCC_COEFFICIENTS = 20
 DEFAULT_WINDOW_SECONDS = 5.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -40,7 +43,8 @@ def _is_audio_fragment(path: Path) -> bool:
 def _load_fragment_signal(fragment_path: Path, sample_rate: int) -> np.ndarray | None:
     try:
         samples, _ = librosa.load(fragment_path.as_posix(), sr=sample_rate, mono=True)
-    except Exception:
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("No se pudo procesar el fragmento de audio %s: %s", fragment_path, exc)
         return None
 
     if samples.size == 0:

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
 from pathlib import Path
-import tempfile
 from threading import Lock
 
 from fastapi import UploadFile
@@ -11,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import SleepDetectionLog, SleepSession, User, UserFeedback
+from app.core.config import settings
 from app.models.sleep import (
     SleepCalibrationResponse,
     SleepContinuityPoint,
@@ -26,8 +26,11 @@ from app.models.sleep import (
 from app.services.audio_processor import build_session_audio_batch, cleanup_session_fragments
 from app.services.ml_service import LABEL_APNEA, LABEL_SNORE, SleepModel, WindowDetection
 
-_FRAGMENT_ROOT = Path(tempfile.gettempdir()) / "asap_sleep_fragments"
+_FRAGMENT_ROOT = Path(settings.sleep_fragment_root)
 _ALLOWED_AUDIO_EXTENSIONS = {".m4a", ".wav", ".aac", ".mp4", ".caf"}
+_SCORE_PER_HOUR = 12.5
+_APNEA_PENALTY_PER_EVENT = 8.0
+_SNORE_PENALTY_PER_HOUR = 0.75
 _session_fragments: dict[str, list[dict]] = defaultdict(list)
 _session_fragment_lock = Lock()
 _sleep_model = SleepModel()
@@ -108,10 +111,10 @@ def _compute_sleep_score(
         return 0
 
     snore_frequency_per_hour = snore_count / max(duration_hours, 1 / 6)
-    apnea_penalty = apnea_events * 8.0
-    snore_penalty = snore_frequency_per_hour * 0.75
+    apnea_penalty = apnea_events * _APNEA_PENALTY_PER_EVENT
+    snore_penalty = snore_frequency_per_hour * _SNORE_PENALTY_PER_HOUR
 
-    score = (duration_hours * 12.5) - apnea_penalty - snore_penalty
+    score = (duration_hours * _SCORE_PER_HOUR) - apnea_penalty - snore_penalty
 
     return int(max(0, min(100, round(score))))
 
@@ -451,6 +454,8 @@ async def ingest_sleep_fragment(
     payload = await fragmento.read()
     if not payload:
         raise ValueError("Fragmento de audio vacío.")
+    if len(payload) > settings.max_sleep_fragment_size_bytes:
+        raise ValueError("Fragmento demasiado grande para procesamiento.")
 
     _FRAGMENT_ROOT.mkdir(parents=True, exist_ok=True)
     session_dir = _FRAGMENT_ROOT / session_id

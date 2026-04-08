@@ -19,12 +19,13 @@ def _validate_admin_export_key(header_value: str | None) -> None:
 @router.get("/dataset/export")
 def export_dataset_endpoint(
     format: Literal["json", "csv"] = Query(default="json"),
+    limit: int = Query(default=10000, ge=1, le=50000),
     x_admin_export_key: str | None = Header(default=None, alias="X-Admin-Export-Key"),
     db: Session = Depends(get_db),
 ):
     _validate_admin_export_key(x_admin_export_key)
 
-    rows = build_dataset_export_rows(db=db)
+    rows = build_dataset_export_rows(db=db, limit=limit)
 
     if format == "csv":
         payload = build_dataset_export_csv(rows)

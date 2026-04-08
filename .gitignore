@@ -16,6 +16,8 @@ env/
 htmlcov/
 data/*.jsonl
 *.db
+artifacts/
+storage/sleep_fragments/
 
 build/
 dist/

@@ -87,8 +87,8 @@ Stack de persistencia:
 
 - ORM: `SQLAlchemy 2.x`
 - Migraciones: `Alembic`
-- Desarrollo rapido: `SQLite` (`sqlite:///./asap.db`)
-- Recomendado para staging/produccion: `PostgreSQL` (Neon compatible)
+- Principal para todos los entornos: `PostgreSQL` (Neon compatible)
+- Fallback secundario opcional en local: `SQLite` (`sqlite:///./asap.db`)
 
 URL ejemplo para Neon:
 
@@ -98,17 +98,15 @@ DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>/<database>?sslmode=re
 
 Importante:
 El backend carga automaticamente variables desde `.env` (via `python-dotenv`).
-Si no defines `DATABASE_URL`, se usara SQLite local.
+`DATABASE_URL` debe apuntar a Neon/PostgreSQL en entornos reales.
 
 ### Como Trabajar La Base De Datos
 
-1. Desarrollo local simple:
-	Usa el fallback SQLite sin configurar nada extra.
-2. Desarrollo local con PostgreSQL:
-	Ejecuta `docker compose up --build`.
-3. Staging/produccion:
-	Configura `DATABASE_URL` apuntando a Neon/PostgreSQL.
-4. Migraciones:
+1. Desarrollo local / staging / producción:
+  Configura `DATABASE_URL` apuntando a Neon/PostgreSQL.
+2. Desarrollo local alterno (opcional):
+  Usa `SQLITE_DATABASE_URL` solo como fallback temporal.
+3. Migraciones:
 	Ejecuta `alembic upgrade head` en cada despliegue.
 
 ### Verificar Que Estas En Neon
@@ -187,6 +185,8 @@ Para SMTP personalizado, usa `SMTP_PROVIDER=custom` y define `SMTP_HOST`, `SMTP_
 
 ## Desarrollo Local
 
+Requisito recomendado de Python: `3.11` o `3.12` (scikit-learn 1.4.0 no está soportado en Python 3.14).
+
 Instalar dependencias:
 
 ```bash
@@ -210,3 +210,38 @@ Ejecutar pruebas:
 ```bash
 pytest -q
 ```
+
+Variables importantes para entornos reales:
+
+- `APP_ENV=production`
+- `AUTH_SECRET_KEY` (obligatorio y robusto)
+- `ADMIN_DATASET_EXPORT_KEY` (obligatorio y robusto)
+- `CORS_ALLOWED_ORIGINS` (lista separada por comas)
+- `SLEEP_FRAGMENT_ROOT`
+- `MAX_SLEEP_FRAGMENT_SIZE_BYTES`
+
+## Modelos ML v3 (audio + SpO2)
+
+Artefactos requeridos en `ML_V3_MODEL_DIR`:
+
+- `model_spo2_v3.joblib`
+- `model_audio_v3.joblib`
+- `scaler_spo2_v3.joblib`
+- `scaler_audio_v3.joblib`
+- `metadata_v3.json`
+
+Descarga automática (si tienes una URL base donde están publicados):
+
+1. Agrega en `.env`:
+
+```bash
+ML_V3_MODELS_BASE_URL=https://tu-origen-de-archivos/asap/v3
+```
+
+2. Ejecuta:
+
+```bash
+python scripts/download_ml_v3_models.py
+```
+
+Esto descargará los cinco archivos al directorio configurado en `ML_V3_MODEL_DIR`.

@@ -6,6 +6,7 @@ from io import StringIO
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.models import SleepDetectionLog, SleepSession, UserFeedback
 
 DATASET_EXPORT_FIELDS = [
@@ -32,8 +33,9 @@ DATASET_EXPORT_FIELDS = [
 ]
 
 
-def build_dataset_export_rows(db: Session) -> list[dict]:
-    sessions = db.scalars(select(SleepSession).order_by(SleepSession.created_at.desc())).all()
+def build_dataset_export_rows(db: Session, limit: int | None = None) -> list[dict]:
+    effective_limit = limit if isinstance(limit, int) and limit > 0 else settings.admin_dataset_export_limit
+    sessions = db.scalars(select(SleepSession).order_by(SleepSession.created_at.desc()).limit(effective_limit)).all()
     exported_at = datetime.now(timezone.utc).isoformat()
 
     rows: list[dict] = []

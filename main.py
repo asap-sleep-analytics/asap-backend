@@ -9,6 +9,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.leads import router as leads_router
 from app.api.routes.sleep import router as sleep_router
+from app.api.routes.sleep_v3 import router as sleep_v3_router
 from app.core.config import settings
 from app.db.init_db import init_db
 
@@ -25,11 +26,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS abierto para desarrollo local. Restringir orígenes en producción.
+allow_all_origins = "*" in settings.cors_allowed_origins
+
+# Permite configuración por entorno evitando credenciales con wildcard.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -40,6 +43,7 @@ app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(leads_router)
 app.include_router(sleep_router)
+app.include_router(sleep_v3_router)
 
 
 @app.get("/health", tags=["health"])

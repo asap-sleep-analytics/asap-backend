@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -16,6 +16,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     share_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
     ronca_habitualmente: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cansancio_diurno: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

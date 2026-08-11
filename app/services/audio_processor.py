@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-from pathlib import Path
+import os
 import shutil
+from dataclasses import dataclass
+from pathlib import Path
 
 import librosa
 import numpy as np
+
+from app.utils.audio import convert_to_wav
 
 AUDIO_FRAGMENT_EXTENSIONS = {".m4a", ".wav", ".aac", ".mp4", ".caf", ".flac", ".ogg"}
 DEFAULT_SAMPLE_RATE = 16000
@@ -42,7 +45,21 @@ def _is_audio_fragment(path: Path) -> bool:
 
 def _load_fragment_signal(fragment_path: Path, sample_rate: int) -> np.ndarray | None:
     try:
-        samples, _ = librosa.load(fragment_path.as_posix(), sr=sample_rate, mono=True)
+        audio_path = fragment_path.as_posix()
+
+        # Si el archivo no es WAV, convertirlo primero
+        if not audio_path.lower().endswith('.wav'):
+            logger.info("Convirtiendo audio de %s a WAV", fragment_path.suffix)
+            audio_path = convert_to_wav(audio_path)
+
+        samples, _ = librosa.load(audio_path, sr=sample_rate, mono=True)
+
+        # Limpiar archivo convertido temporal si se creó
+        if audio_path != fragment_path.as_posix():
+            try:
+                os.remove(audio_path)
+            except Exception as e:
+                logger.debug("No se pudo limpiar archivo temporal: %s", e)
     except (OSError, RuntimeError, ValueError) as exc:
         logger.warning("No se pudo procesar el fragmento de audio %s: %s", fragment_path, exc)
         return None

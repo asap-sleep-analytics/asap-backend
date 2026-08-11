@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -21,6 +21,7 @@ class SleepSession(Base):
     avg_oxygen: Mapped[float | None] = mapped_column(Float, nullable=True)
     ambient_noise_level: Mapped[float | None] = mapped_column(Float, nullable=True)
     sleep_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_source: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
     continuity_timeline: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
 

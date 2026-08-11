@@ -1,51 +1,18 @@
-from array import array
-import math
 import io
+import math
 import wave
-from pathlib import Path
-from typing import Generator
+from array import array
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
 from app.db.models import SleepDetectionLog
-from app.db.session import get_db
-from main import app
-
-
-@pytest.fixture()
-def client(tmp_path: Path) -> Generator[TestClient, None, None]:
-    test_db_file = tmp_path / "sleep_test.db"
-    test_database_url = f"sqlite:///{test_db_file}"
-
-    engine = create_engine(test_database_url, connect_args={"check_same_thread": False})
-    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db():
-        db = testing_session()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.state.test_engine = engine
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
-    app.state.test_engine = None
-    engine.dispose()
 
 
 def _register(client: TestClient, email: str) -> str:
     response = client.post(
-        "/api/auth/registro",
+        "/api/v1/auth/registro",
         json={
             "nombre_completo": "Sleep Tester",
             "email": email,
@@ -60,7 +27,7 @@ def _register(client: TestClient, email: str) -> str:
 
 def test_calibracion_ruido_alto(client: TestClient) -> None:
     response = client.post(
-        "/api/sleep/calibracion",
+        "/api/v1/sleep/calibracion",
         json={"ambient_noise_level": 62},
     )
 
@@ -73,7 +40,7 @@ def test_iniciar_y_finalizar_sesion(client: TestClient) -> None:
     token = _register(client, "sleep.session@example.com")
 
     start = client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={"ambient_noise_level": 36},
     )
@@ -81,7 +48,7 @@ def test_iniciar_y_finalizar_sesion(client: TestClient) -> None:
     session_id = start.json()["sesion"]["session_id"]
 
     finish = client.post(
-        f"/api/sleep/sesiones/{session_id}/finalizar",
+        f"/api/v1/sleep/sesiones/{session_id}/finalizar",
         headers={"Authorization": f"Bearer {token}"},
         json={
             "snore_count": 8,
@@ -95,34 +62,38 @@ def test_iniciar_y_finalizar_sesion(client: TestClient) -> None:
     body = finish.json()
     assert body["sesion"]["sleep_score"] is not None
     assert isinstance(body["sesion"]["continuidad"], list)
-    assert len(body["sesion"]["continuidad"]) >= 1
+    # Sin fragmentos de audio no hay inferencia: timeline vacío y fuente explícita.
+    assert body["sesion"]["continuidad"] == []
+    assert body["sesion"]["model_source"] is None
 
 
 def test_listar_sesiones(client: TestClient) -> None:
     token = _register(client, "sleep.list@example.com")
 
     client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={"ambient_noise_level": 32},
     )
 
     response = client.get(
-        "/api/sleep/sesiones?limit=10",
+        "/api/v1/sleep/sesiones?limit=10",
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert isinstance(body, list)
-    assert len(body) >= 1
+    assert isinstance(body["items"], list)
+    assert len(body["items"]) >= 1
+    assert "next_cursor" in body
+    assert "has_more" in body
 
 
 def test_subir_fragmento_audio(client: TestClient) -> None:
     token = _register(client, "sleep.fragment@example.com")
 
     start = client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={"ambient_noise_level": 34},
     )
@@ -130,7 +101,7 @@ def test_subir_fragmento_audio(client: TestClient) -> None:
     session_id = start.json()["sesion"]["session_id"]
 
     response = client.post(
-        f"/api/sleep/sesiones/{session_id}/fragmento",
+        f"/api/v1/sleep/sesiones/{session_id}/fragmento",
         headers={"Authorization": f"Bearer {token}"},
         files={"fragmento": ("fragmento_0001.m4a", b"FAKEAUDIO" * 1024, "audio/mp4")},
         data={"fragment_index": "1", "duration_seconds": "30"},
@@ -169,7 +140,7 @@ def test_finalizar_sesion_con_fragmentos_y_logs_confianza(client: TestClient) ->
     token = _register(client, "sleep.analysis@example.com")
 
     start = client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={"ambient_noise_level": 37},
     )
@@ -178,7 +149,7 @@ def test_finalizar_sesion_con_fragmentos_y_logs_confianza(client: TestClient) ->
 
     fragment_bytes = _build_wav_fragment()
     upload = client.post(
-        f"/api/sleep/sesiones/{session_id}/fragmento",
+        f"/api/v1/sleep/sesiones/{session_id}/fragmento",
         headers={"Authorization": f"Bearer {token}"},
         files={"fragmento": ("fragment_0001.wav", fragment_bytes, "audio/wav")},
         data={"fragment_index": "1", "duration_seconds": "30"},
@@ -186,7 +157,7 @@ def test_finalizar_sesion_con_fragmentos_y_logs_confianza(client: TestClient) ->
     assert upload.status_code == 201
 
     finish = client.post(
-        f"/api/sleep/sesiones/{session_id}/finalizar",
+        f"/api/v1/sleep/sesiones/{session_id}/finalizar",
         headers={"Authorization": f"Bearer {token}"},
         json={"avg_oxygen": 95},
     )
@@ -212,7 +183,7 @@ def test_listar_detecciones_por_sesion(client: TestClient) -> None:
     token = _register(client, "sleep.logs.endpoint@example.com")
 
     start = client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={"ambient_noise_level": 33},
     )
@@ -221,7 +192,7 @@ def test_listar_detecciones_por_sesion(client: TestClient) -> None:
 
     fragment_bytes = _build_wav_fragment()
     upload = client.post(
-        f"/api/sleep/sesiones/{session_id}/fragmento",
+        f"/api/v1/sleep/sesiones/{session_id}/fragmento",
         headers={"Authorization": f"Bearer {token}"},
         files={"fragmento": ("fragment_0001.wav", fragment_bytes, "audio/wav")},
         data={"fragment_index": "0", "duration_seconds": "30"},
@@ -229,14 +200,14 @@ def test_listar_detecciones_por_sesion(client: TestClient) -> None:
     assert upload.status_code == 201
 
     finish = client.post(
-        f"/api/sleep/sesiones/{session_id}/finalizar",
+        f"/api/v1/sleep/sesiones/{session_id}/finalizar",
         headers={"Authorization": f"Bearer {token}"},
         json={"avg_oxygen": 95},
     )
     assert finish.status_code == 200
 
     response = client.get(
-        f"/api/sleep/sesiones/{session_id}/detecciones?limit=200",
+        f"/api/v1/sleep/sesiones/{session_id}/detecciones?limit=200",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -254,7 +225,7 @@ def test_guardar_feedback_sesion_finalizada(client: TestClient) -> None:
     token = _register(client, "sleep.feedback@example.com")
 
     start = client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={"ambient_noise_level": 30},
     )
@@ -262,14 +233,14 @@ def test_guardar_feedback_sesion_finalizada(client: TestClient) -> None:
     session_id = start.json()["sesion"]["session_id"]
 
     finish = client.post(
-        f"/api/sleep/sesiones/{session_id}/finalizar",
+        f"/api/v1/sleep/sesiones/{session_id}/finalizar",
         headers={"Authorization": f"Bearer {token}"},
         json={"snore_count": 2, "apnea_events": 1, "avg_oxygen": 96},
     )
     assert finish.status_code == 200
 
     response = client.post(
-        f"/api/sleep/sesiones/{session_id}/feedback",
+        f"/api/v1/sleep/sesiones/{session_id}/feedback",
         headers={"Authorization": f"Bearer {token}"},
         json={
             "calificacion_descanso": 4,

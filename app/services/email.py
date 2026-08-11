@@ -67,12 +67,12 @@ def send_waitlist_confirmation_email(name: str, email: str, confirmation_url: st
         message["Reply-To"] = settings.smtp_reply_to
 
     message.set_content(
-        (
+
             f"Hola {name},\n\n"
             "Confirma tu correo para unirte a la lista de espera de A.S.A.P.\n"
             f"Enlace de confirmación: {confirmation_url}\n\n"
             "Si no solicitaste este registro, puedes ignorar este mensaje."
-        )
+
     )
     message.add_alternative(
         (

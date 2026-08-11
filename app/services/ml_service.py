@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
@@ -54,7 +55,7 @@ def _clamp_confidence(value: float) -> float:
 class SleepModel:
     def __init__(self, model_path: str | Path | None = None):
         self._model_path = Path(model_path or settings.ml_sleep_model_path)
-        self._model = None
+        self._model: Any = None
         self._loaded = False
 
     def _ensure_model(self) -> None:
@@ -132,8 +133,8 @@ class SleepModel:
     def _predict_with_heuristic(self, batch: SessionAudioBatch) -> SleepInferenceResult:
         db_values = np.array([window.rms_db for window in batch.windows], dtype=np.float32)
 
-        high_threshold = float(max(np.percentile(db_values, 80), -24.0))
-        low_threshold = float(min(np.percentile(db_values, 20), -39.0))
+        high_threshold = float(max(float(np.percentile(db_values, 80)), -24.0))
+        low_threshold = float(min(float(np.percentile(db_values, 20)), -39.0))
 
         apnea_indexes: set[int] = set()
         streak: list[int] = []

@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 SleepState = Literal["deep_sleep", "interrupcion"]
 
 
@@ -46,6 +45,7 @@ class SleepSessionRecord(BaseModel):
     avg_oxygen: float | None
     ambient_noise_level: float | None
     sleep_score: int | None
+    model_source: str | None = None
     continuidad: list[SleepContinuityPoint]
     created_at: datetime
 

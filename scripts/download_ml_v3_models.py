@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from urllib.request import urlopen
 
 from dotenv import load_dotenv

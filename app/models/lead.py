@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 DeviceType = Literal["ios", "android", "both"]
 LeadStatusType = Literal["pending", "confirmed"]
 

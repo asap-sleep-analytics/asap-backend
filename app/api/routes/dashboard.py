@@ -7,7 +7,7 @@ from app.db.session import get_db
 from app.models.dashboard import DashboardResumenResponse
 from app.services.dashboard import get_dashboard_summary
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 
 @router.get("/resumen", response_model=DashboardResumenResponse)

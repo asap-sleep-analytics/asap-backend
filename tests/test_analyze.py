@@ -1,11 +1,7 @@
 from fastapi.testclient import TestClient
 
-from main import app
 
-client = TestClient(app)
-
-
-def test_analyze_endpoint_returns_response_schema() -> None:
+def test_analyze_endpoint_returns_response_schema(client: TestClient) -> None:
     payload = {
         "file_name": "subject_001.wav",
         "duration_seconds": 35.5,
@@ -16,7 +12,7 @@ def test_analyze_endpoint_returns_response_schema() -> None:
         "extra": {"device": "wearable-v2"},
     }
 
-    response = client.post("/analyze", json=payload)
+    response = client.post("/api/v1/analyze", json=payload)
 
     assert response.status_code == 200
     body = response.json()

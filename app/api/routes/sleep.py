@@ -14,7 +14,6 @@ from app.models.sleep import (
     SleepFeedbackResponse,
     SleepFragmentUploadResponse,
     SleepSessionFinishRequest,
-    SleepSessionRecord,
     SleepSessionResponse,
     SleepSessionStartRequest,
 )
@@ -28,7 +27,7 @@ from app.services.sleep import (
     upsert_sleep_feedback,
 )
 
-router = APIRouter(prefix="/api/sleep", tags=["sleep"])
+router = APIRouter(prefix="/api/v1/sleep", tags=["sleep"])
 
 
 @router.post("/calibracion", response_model=SleepCalibrationResponse)
@@ -63,13 +62,15 @@ def finish_session_endpoint(
     return SleepSessionResponse(mensaje="Monitoreo finalizado. Reporte listo.", sesion=session)
 
 
-@router.get("/sesiones", response_model=list[SleepSessionRecord])
+@router.get("/sesiones")
 def list_sessions_endpoint(
     limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[SleepSessionRecord]:
-    return list_sleep_sessions(db=db, user=current_user, limit=limit)
+) -> dict:
+    items, next_cursor = list_sleep_sessions(db=db, user=current_user, limit=limit, cursor=cursor)
+    return {"items": items, "next_cursor": next_cursor, "has_more": next_cursor is not None}
 
 
 @router.post("/sesiones/{session_id}/feedback", response_model=SleepFeedbackResponse)

@@ -25,3 +25,8 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+.expo/
+ml/models/
+*.log
+.ruff_cache/

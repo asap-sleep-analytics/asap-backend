@@ -3,6 +3,7 @@ name: Backend Deploy
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -60,7 +61,7 @@ jobs:
   docker-build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout
@@ -91,11 +92,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Run database migrations
+        if: ${{ secrets.DATABASE_URL != '' && secrets.AUTH_SECRET_KEY != '' && secrets.ADMIN_DATASET_EXPORT_KEY != '' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTH_SECRET_KEY: ${{ secrets.AUTH_SECRET_KEY }}
+          ADMIN_DATASET_EXPORT_KEY: ${{ secrets.ADMIN_DATASET_EXPORT_KEY }}
         run: |
-          pip install -r requirements.txt
-          alembic upgrade head
+          IMAGE=ghcr.io/${{ github.repository_owner }}/asap-backend:main
+          docker pull "$IMAGE"
+          docker run --rm \
+            --env DATABASE_URL="$DATABASE_URL" \
+            --env AUTH_SECRET_KEY="$AUTH_SECRET_KEY" \
+            --env ADMIN_DATASET_EXPORT_KEY="$ADMIN_DATASET_EXPORT_KEY" \
+            "$IMAGE" alembic upgrade head
 
       - name: Trigger Railway deployment
         if: ${{ secrets.RAILWAY_TOKEN != '' && secrets.RAILWAY_SERVICE_ID != '' }}

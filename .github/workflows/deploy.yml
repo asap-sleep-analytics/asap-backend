@@ -53,8 +53,8 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql+psycopg://asap_test:asap_test@localhost:5432/asap_test
-          AUTH_SECRET_KEY: test-key-for-ci
-          ADMIN_DATASET_EXPORT_KEY: test-admin-key-for-ci
+          AUTH_SECRET_KEY: test-key-for-ci-only-32-bytes-minimum
+          ADMIN_DATASET_EXPORT_KEY: test-admin-key-for-ci-only-32-bytes
         run: |
           pytest tests/ -v --timeout=30
 

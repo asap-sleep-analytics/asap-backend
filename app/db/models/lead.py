@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-class LeadStatus(str, enum.Enum):
+class LeadStatus(enum.StrEnum):
     pending = "pending"
     confirmed = "confirmed"
 

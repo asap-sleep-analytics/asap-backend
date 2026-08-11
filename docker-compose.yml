@@ -21,18 +21,26 @@ services:
     container_name: asap-backend
     build:
       context: .
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - APP_ENV=production
       - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-asap}:${POSTGRES_PASSWORD:-asap_dev_only_change_me}@db:5432/${POSTGRES_DB:-asap}}
-      - AUTO_CREATE_TABLES=${AUTO_CREATE_TABLES:-true}
+      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY}
+      - ADMIN_DATASET_EXPORT_KEY=${ADMIN_DATASET_EXPORT_KEY}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      - AUTO_CREATE_TABLES=${AUTO_CREATE_TABLES:-false}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
 volumes:
   postgres_data:

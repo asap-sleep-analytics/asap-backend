@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Annotated
+
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.rate_limit import rate_limit_dependency
+from app.core.security import get_current_user
+from app.db.models import User
 from app.db.session import get_db
 from app.models.lead import (
     WaitlistLeadConfirmResponse,
     WaitlistLeadCreate,
-    WaitlistLeadRecord,
     WaitlistLeadResendRequest,
     WaitlistLeadResendResponse,
     WaitlistLeadResponse,
@@ -15,30 +19,43 @@ from app.services.leads import (
     create_waitlist_lead,
     list_waitlist_leads,
     resend_waitlist_confirmation,
+    send_confirmation_email_background,
 )
 
-router = APIRouter(prefix="/api", tags=["waitlist"])
+router = APIRouter(prefix="/api/v1", tags=["waitlist"])
 
 
 @router.post("/leads", response_model=WaitlistLeadResponse, status_code=status.HTTP_201_CREATED)
 def create_waitlist_lead_endpoint(
-    lead: WaitlistLeadCreate,
+    lead: Annotated[WaitlistLeadCreate, Body()],
+    background_tasks: BackgroundTasks,
+    _: None = Depends(rate_limit_dependency(max_requests=5, window_seconds=60)),
     db: Session = Depends(get_db),
 ) -> WaitlistLeadResponse:
-    created, message, preview_url = create_waitlist_lead(db=db, payload=lead)
+    created, message, confirmation_url, smtp_ok = create_waitlist_lead(db=db, payload=lead)
+    if smtp_ok and confirmation_url is not None:
+        background_tasks.add_task(
+            send_confirmation_email_background,
+            name=created.name,
+            email=created.email,
+            confirmation_url=confirmation_url,
+        )
     return WaitlistLeadResponse(
         message=message,
         lead=created,
-        confirmation_url_preview=preview_url,
+        confirmation_url_preview=None if smtp_ok else confirmation_url,
     )
 
 
-@router.get("/leads", response_model=list[WaitlistLeadRecord])
+@router.get("/leads")
 def get_waitlist_leads(
     limit: int = Query(default=20, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[WaitlistLeadRecord]:
-    return list_waitlist_leads(db=db, limit=limit)
+) -> dict:
+    items, next_cursor = list_waitlist_leads(db=db, limit=limit, cursor=cursor)
+    return {"items": items, "next_cursor": next_cursor, "has_more": next_cursor is not None}
 
 
 @router.get("/leads/confirm", response_model=WaitlistLeadConfirmResponse)
@@ -56,12 +73,21 @@ def confirm_waitlist_lead_endpoint(
 
 @router.post("/leads/resend-confirmation", response_model=WaitlistLeadResendResponse)
 def resend_waitlist_confirmation_endpoint(
-    payload: WaitlistLeadResendRequest,
+    payload: Annotated[WaitlistLeadResendRequest, Body()],
+    background_tasks: BackgroundTasks,
+    _: None = Depends(rate_limit_dependency(max_requests=3, window_seconds=120)),
     db: Session = Depends(get_db),
 ) -> WaitlistLeadResendResponse:
-    lead, message, preview_url = resend_waitlist_confirmation(db=db, email=payload.email)
+    lead, message, confirmation_url, smtp_ok = resend_waitlist_confirmation(db=db, email=payload.email)
+    if smtp_ok and lead is not None and confirmation_url is not None:
+        background_tasks.add_task(
+            send_confirmation_email_background,
+            name=lead.name,
+            email=lead.email,
+            confirmation_url=confirmation_url,
+        )
     return WaitlistLeadResendResponse(
         message=message,
         lead=lead,
-        confirmation_url_preview=preview_url,
+        confirmation_url_preview=None if smtp_ok else confirmation_url,
     )

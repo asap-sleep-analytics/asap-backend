@@ -6,16 +6,20 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import settings
 
 
-def _connect_args() -> dict[str, bool]:
+def _engine_kwargs() -> dict:
+    kwargs: dict = {"pool_pre_ping": True}
     if settings.database_url.startswith("sqlite"):
-        return {"check_same_thread": False}
-    return {}
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        kwargs["pool_size"] = settings.db_pool_size
+        kwargs["max_overflow"] = settings.db_max_overflow
+        kwargs["pool_timeout"] = settings.db_pool_timeout
+    return kwargs
 
 
 engine = create_engine(
     settings.database_url,
-    pool_pre_ping=True,
-    connect_args=_connect_args(),
+    **_engine_kwargs(),
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

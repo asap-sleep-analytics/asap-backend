@@ -1,3 +1,4 @@
+import secrets
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -8,11 +9,11 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.services.admin import build_dataset_export_csv, build_dataset_export_rows
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 def _validate_admin_export_key(header_value: str | None) -> None:
-    if not header_value or header_value != settings.admin_dataset_export_key:
+    if not header_value or not secrets.compare_digest(header_value, settings.admin_dataset_export_key):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acceso de exportación no autorizado.")
 
 

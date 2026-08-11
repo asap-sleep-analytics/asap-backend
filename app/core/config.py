@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -100,13 +100,28 @@ class Settings(BaseModel):
     )
     auth_algorithm: str = Field(default_factory=lambda: os.getenv("AUTH_ALGORITHM", "HS256"))
     auth_access_token_expires_minutes: int = Field(
-        default_factory=lambda: _env_int("AUTH_ACCESS_TOKEN_EXPIRES_MINUTES", 60 * 24 * 30)
+        default_factory=lambda: _env_int("AUTH_ACCESS_TOKEN_EXPIRES_MINUTES", 15)
     )
     auth_issuer: str = Field(default_factory=lambda: os.getenv("AUTH_ISSUER", "asap-backend"))
 
     admin_dataset_export_key: str = Field(
         default_factory=lambda: os.getenv("ADMIN_DATASET_EXPORT_KEY", "asap-admin-dev-key")
     )
+
+    def _warn_insecure_defaults(self) -> None:
+        import warnings
+        if self.auth_secret_key == "cambia-esta-clave-en-produccion-asap":
+            warnings.warn(
+                "AUTH_SECRET_KEY usa el valor por defecto inseguro. "
+                "Configura AUTH_SECRET_KEY en variables de entorno para producción.",
+                stacklevel=3,
+            )
+        if self.admin_dataset_export_key == "asap-admin-dev-key":
+            warnings.warn(
+                "ADMIN_DATASET_EXPORT_KEY usa el valor por defecto inseguro. "
+                "Configura ADMIN_DATASET_EXPORT_KEY en variables de entorno para producción.",
+                stacklevel=3,
+            )
 
     ml_sleep_model_path: str = Field(
         default_factory=lambda: os.getenv("ML_SLEEP_MODEL_PATH", str(BASE_DIR / "artifacts" / "sleep_model.joblib"))
@@ -129,10 +144,19 @@ class Settings(BaseModel):
     max_sleep_fragment_size_bytes: int = Field(
         default_factory=lambda: _env_int("MAX_SLEEP_FRAGMENT_SIZE_BYTES", 5 * 1024 * 1024)
     )
+    max_v3_audio_size_bytes: int = Field(
+        default_factory=lambda: _env_int("MAX_V3_AUDIO_SIZE_BYTES", 15 * 1024 * 1024)
+    )
     admin_dataset_export_limit: int = Field(default_factory=lambda: _env_int("ADMIN_DATASET_EXPORT_LIMIT", 10000))
+
+    db_pool_size: int = Field(default_factory=lambda: _env_int("DB_POOL_SIZE", 10))
+    db_max_overflow: int = Field(default_factory=lambda: _env_int("DB_MAX_OVERFLOW", 20))
+    db_pool_timeout: int = Field(default_factory=lambda: _env_int("DB_POOL_TIMEOUT", 30))
 
     def __init__(self, **data):
         super().__init__(**data)
+
+        self._warn_insecure_defaults()
 
         if self.app_env in {"prod", "production"}:
             if self.database_url.startswith("sqlite"):

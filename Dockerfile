@@ -1,9 +1,12 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    APP_ENV=production
 
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
@@ -11,6 +14,15 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY . .
 
+RUN addgroup --system --gid 1001 asap && \
+    adduser --system --uid 1001 --ingroup asap asap && \
+    chown -R asap:asap /app/storage /app
+
+USER asap
+
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,6 +1,6 @@
-from collections import Counter
 import csv
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import UTC, datetime
 from io import StringIO
 
 from sqlalchemy import select
@@ -36,7 +36,7 @@ DATASET_EXPORT_FIELDS = [
 def build_dataset_export_rows(db: Session, limit: int | None = None) -> list[dict]:
     effective_limit = limit if isinstance(limit, int) and limit > 0 else settings.admin_dataset_export_limit
     sessions = db.scalars(select(SleepSession).order_by(SleepSession.created_at.desc()).limit(effective_limit)).all()
-    exported_at = datetime.now(timezone.utc).isoformat()
+    exported_at = datetime.now(UTC).isoformat()
 
     rows: list[dict] = []
     for session in sessions:

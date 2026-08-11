@@ -1,24 +1,12 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import SleepSession, User
-from app.models.auth import UserPublic
 from app.models.dashboard import DashboardEventosDetectados, DashboardIndicadores, DashboardResumenResponse
 from app.models.sleep import SleepContinuityPoint
-
-
-def _to_public_user(user: User) -> UserPublic:
-    return UserPublic(
-        user_id=user.id,
-        nombre_completo=user.full_name,
-        email=user.email,
-        activo=user.is_active,
-        ronca_habitualmente=user.ronca_habitualmente,
-        cansancio_diurno=user.cansancio_diurno,
-        creado_en=user.created_at,
-    )
+from app.services.auth import _to_public_user
 
 
 def _latest_session_for_user(db: Session, user_id: str) -> SleepSession | None:
@@ -45,7 +33,7 @@ def get_dashboard_summary(db: Session, current_user: User) -> DashboardResumenRe
     if not latest_session:
         return DashboardResumenResponse(
             mensaje="Aún no tienes sesiones nocturnas registradas.",
-            generado_en=datetime.now(timezone.utc),
+            generado_en=datetime.now(UTC),
             usuario=_to_public_user(current_user),
             indicadores=DashboardIndicadores(
                 sleep_score=0,
@@ -68,7 +56,7 @@ def get_dashboard_summary(db: Session, current_user: User) -> DashboardResumenRe
 
     return DashboardResumenResponse(
         mensaje="Dashboard cargado correctamente.",
-        generado_en=datetime.now(timezone.utc),
+        generado_en=datetime.now(UTC),
         usuario=_to_public_user(current_user),
         indicadores=DashboardIndicadores(
             sleep_score=score,

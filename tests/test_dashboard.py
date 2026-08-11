@@ -1,43 +1,9 @@
-from pathlib import Path
-from typing import Generator
-
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from app.db.base import Base
-from app.db.session import get_db
-from main import app
-
-
-@pytest.fixture()
-def client(tmp_path: Path) -> Generator[TestClient, None, None]:
-    test_db_file = tmp_path / "dashboard_test.db"
-    test_database_url = f"sqlite:///{test_db_file}"
-
-    engine = create_engine(test_database_url, connect_args={"check_same_thread": False})
-    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db():
-        db = testing_session()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
-    engine.dispose()
 
 
 def _register(client: TestClient, email: str) -> str:
     response = client.post(
-        "/api/auth/registro",
+        "/api/v1/auth/registro",
         json={
             "nombre_completo": "Usuario Dashboard",
             "email": email,
@@ -51,7 +17,7 @@ def _register(client: TestClient, email: str) -> str:
 
 
 def test_dashboard_resumen_auth_required(client: TestClient) -> None:
-    response = client.get("/api/dashboard/resumen")
+    response = client.get("/api/v1/dashboard/resumen")
     assert response.status_code == 401
 
 
@@ -59,7 +25,7 @@ def test_dashboard_resumen_ok(client: TestClient) -> None:
     token = _register(client, "dashboard@example.com")
 
     start = client.post(
-        "/api/sleep/sesiones/iniciar",
+        "/api/v1/sleep/sesiones/iniciar",
         headers={"Authorization": f"Bearer {token}"},
         json={
             "ambient_noise_level": 38,
@@ -69,7 +35,7 @@ def test_dashboard_resumen_ok(client: TestClient) -> None:
 
     session_id = start.json()["sesion"]["session_id"]
     finish = client.post(
-        f"/api/sleep/sesiones/{session_id}/finalizar",
+        f"/api/v1/sleep/sesiones/{session_id}/finalizar",
         headers={"Authorization": f"Bearer {token}"},
         json={
             "snore_count": 12,
@@ -81,7 +47,7 @@ def test_dashboard_resumen_ok(client: TestClient) -> None:
     assert finish.status_code == 200
 
     response = client.get(
-        "/api/dashboard/resumen",
+        "/api/v1/dashboard/resumen",
         headers={"Authorization": f"Bearer {token}"},
     )
 

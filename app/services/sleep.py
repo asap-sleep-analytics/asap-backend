@@ -1,16 +1,14 @@
-from collections import defaultdict
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import math
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from threading import Lock
 
 from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import SleepDetectionLog, SleepSession, User, UserFeedback
 from app.core.config import settings
+from app.db.models import SleepDetectionLog, SleepSession, User, UserFeedback
 from app.models.sleep import (
     SleepCalibrationResponse,
     SleepContinuityPoint,
@@ -28,11 +26,22 @@ from app.services.ml_service import LABEL_APNEA, LABEL_SNORE, SleepModel, Window
 
 _FRAGMENT_ROOT = Path(settings.sleep_fragment_root)
 _ALLOWED_AUDIO_EXTENSIONS = {".m4a", ".wav", ".aac", ".mp4", ".caf"}
+_ALLOWED_AUDIO_MIME_TYPES = {
+    "audio/mp4",
+    "audio/m4a",
+    "audio/x-m4a",
+    "audio/wav",
+    "audio/wave",
+    "audio/x-wav",
+    "audio/aac",
+    "audio/x-caf",
+    "audio/mpeg",
+    "audio/x-mpeg",
+    "audio/mp3",
+}
 _SCORE_PER_HOUR = 12.5
 _APNEA_PENALTY_PER_EVENT = 8.0
 _SNORE_PENALTY_PER_HOUR = 0.75
-_session_fragments: dict[str, list[dict]] = defaultdict(list)
-_session_fragment_lock = Lock()
 _sleep_model = SleepModel()
 
 
@@ -60,6 +69,7 @@ def _to_record(session: SleepSession) -> SleepSessionRecord:
         avg_oxygen=session.avg_oxygen,
         ambient_noise_level=session.ambient_noise_level,
         sleep_score=session.sleep_score,
+        model_source=session.model_source,
         continuidad=timeline,
         created_at=session.created_at,
     )
@@ -117,30 +127,6 @@ def _compute_sleep_score(
     score = (duration_hours * _SCORE_PER_HOUR) - apnea_penalty - snore_penalty
 
     return int(max(0, min(100, round(score))))
-
-
-def _build_continuity_timeline_from_metrics(
-    start_time: datetime,
-    end_time: datetime,
-    snore_count: int,
-    apnea_events: int,
-) -> list[dict]:
-    duration_minutes = max(int((end_time - start_time).total_seconds() // 60), 10)
-    points = max(6, min(60, duration_minutes // 10))
-
-    event_density = (apnea_events * 2 + snore_count / 20) / max(duration_minutes / 60, 1)
-    threshold = max(10, min(75, int(event_density * 10) + 15))
-
-    timeline: list[dict] = []
-    for index in range(points):
-        probe = (index * 17 + snore_count + apnea_events * 3) % 100
-        state = "interrupcion" if probe < threshold else "deep_sleep"
-        timeline.append({
-            "minuto": index * 10,
-            "estado": state,
-        })
-
-    return timeline
 
 
 def _build_continuity_timeline_from_detections(
@@ -253,14 +239,19 @@ def _persist_detection_logs(db: Session, session_id: str, analysis: SessionAnaly
     db.add_all(records)
 
 
+def _count_session_fragments(session_id: str) -> int:
+    session_dir = _FRAGMENT_ROOT / session_id
+    if not session_dir.exists():
+        return 0
+    return sum(1 for f in session_dir.iterdir() if f.is_file() and f.suffix.lower() in _ALLOWED_AUDIO_EXTENSIONS)
+
+
 def _clear_session_fragment_state(session_id: str) -> None:
     cleanup_session_fragments(session_id=session_id, fragment_root=_FRAGMENT_ROOT)
-    with _session_fragment_lock:
-        _session_fragments.pop(session_id, None)
 
 
 def start_sleep_session(db: Session, user: User, payload: SleepSessionStartRequest) -> SleepSessionRecord:
-    start_time = payload.start_time or datetime.now(timezone.utc)
+    start_time = payload.start_time or datetime.now(UTC)
 
     session = SleepSession(
         user_id=user.id,
@@ -270,7 +261,6 @@ def start_sleep_session(db: Session, user: User, payload: SleepSessionStartReque
         apnea_events=0,
         continuity_timeline=[],
     )
-
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -291,14 +281,14 @@ def finish_sleep_session(
     if session.end_time is not None:
         raise ValueError("La sesión ya fue finalizada.")
 
-    end_time = payload.end_time or datetime.now(timezone.utc)
+    end_time = payload.end_time or datetime.now(UTC)
     start_time = session.start_time
 
     # SQLite suele devolver datetime naive; normalizamos para comparar sin errores.
     if start_time.tzinfo is None:
-        start_time = start_time.replace(tzinfo=timezone.utc)
+        start_time = start_time.replace(tzinfo=UTC)
     if end_time.tzinfo is None:
-        end_time = end_time.replace(tzinfo=timezone.utc)
+        end_time = end_time.replace(tzinfo=UTC)
 
     if end_time <= start_time:
         raise ValueError("La hora final debe ser posterior a la hora de inicio.")
@@ -315,22 +305,21 @@ def finish_sleep_session(
         session.snore_count = analysis.snore_count
         session.apnea_events = analysis.apnea_events
         session.continuity_timeline = analysis.continuity_timeline
+        session.model_source = analysis.model_source
         if payload.ambient_noise_level is not None:
             session.ambient_noise_level = payload.ambient_noise_level
         elif analysis.ambient_noise_level is not None:
             session.ambient_noise_level = analysis.ambient_noise_level
         _persist_detection_logs(db=db, session_id=session_id, analysis=analysis)
     else:
+        # Sin fragmentos de audio no hay inferencia: usamos lo reportado por el
+        # usuario y lo marcamos explicitamente para no presentarlo como medido.
         session.snore_count = payload.snore_count
         session.apnea_events = payload.apnea_events
+        session.model_source = None
+        session.continuity_timeline = []
         if payload.ambient_noise_level is not None:
             session.ambient_noise_level = payload.ambient_noise_level
-        session.continuity_timeline = _build_continuity_timeline_from_metrics(
-            start_time=start_time,
-            end_time=end_time,
-            snore_count=session.snore_count,
-            apnea_events=session.apnea_events,
-        )
 
     session.avg_oxygen = payload.avg_oxygen
 
@@ -348,14 +337,30 @@ def finish_sleep_session(
     return _to_record(session)
 
 
-def list_sleep_sessions(db: Session, user: User, limit: int = 20) -> list[SleepSessionRecord]:
-    rows = db.scalars(
-        select(SleepSession)
-        .where(SleepSession.user_id == user.id)
-        .order_by(SleepSession.start_time.desc())
-        .limit(limit)
-    ).all()
-    return [_to_record(item) for item in rows]
+def list_sleep_sessions(
+    db: Session,
+    user: User,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> tuple[list[SleepSessionRecord], str | None]:
+    query = select(SleepSession).where(SleepSession.user_id == user.id)
+
+    if cursor:
+        from app.models.pagination import decode_cursor
+        cursor_dt = datetime.fromisoformat(decode_cursor(cursor))
+        query = query.where(SleepSession.start_time < cursor_dt)
+
+    query = query.order_by(SleepSession.start_time.desc()).limit(limit + 1)
+    rows = db.scalars(query).all()
+
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_cursor: str | None = None
+    if has_more and items:
+        from app.models.pagination import encode_cursor
+        next_cursor = encode_cursor(items[-1].start_time.isoformat())
+
+    return [_to_record(item) for item in items], next_cursor
 
 
 def list_sleep_detection_logs(
@@ -432,7 +437,7 @@ def upsert_sleep_feedback(
 def _build_fragment_filename(fragment_index: int, source_name: str | None) -> str:
     source_suffix = Path(source_name or "").suffix.lower()
     suffix = source_suffix if source_suffix in _ALLOWED_AUDIO_EXTENSIONS else ".m4a"
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
     return f"fragment_{fragment_index:05d}_{timestamp}{suffix}"
 
 
@@ -451,6 +456,9 @@ async def ingest_sleep_fragment(
     if session.end_time is not None:
         raise ValueError("La sesión ya fue finalizada.")
 
+    if fragmento.content_type and fragmento.content_type not in _ALLOWED_AUDIO_MIME_TYPES:
+        raise ValueError(f"Tipo de archivo no soportado: {fragmento.content_type}")
+
     payload = await fragmento.read()
     if not payload:
         raise ValueError("Fragmento de audio vacío.")
@@ -465,20 +473,8 @@ async def ingest_sleep_fragment(
     stored_path = session_dir / filename
     stored_path.write_bytes(payload)
 
-    created_at = datetime.now(timezone.utc)
-    fragment_record = {
-        "session_id": session_id,
-        "fragment_index": fragment_index,
-        "filename": filename,
-        "bytes_size": len(payload),
-        "duration_seconds": duration_seconds,
-        "created_at": created_at,
-    }
-
-    with _session_fragment_lock:
-        queue = _session_fragments[session_id]
-        queue.append(fragment_record)
-        queued_fragments = len(queue)
+    created_at = datetime.now(UTC)
+    queued_fragments = _count_session_fragments(session_id)
 
     return SleepFragmentUploadResponse(
         mensaje="Fragmento recibido para procesamiento temporal.",

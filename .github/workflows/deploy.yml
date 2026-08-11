@@ -10,8 +10,57 @@ permissions:
   packages: write
 
 jobs:
-  docker-build-and-railway:
+  test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: asap_test
+          POSTGRES_USER: asap_test
+          POSTGRES_PASSWORD: asap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: |
+          ruff check .
+
+      - name: Type check (mypy)
+        run: |
+          mypy app main.py
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+psycopg://asap_test:asap_test@localhost:5432/asap_test
+          AUTH_SECRET_KEY: test-key-for-ci
+          ADMIN_DATASET_EXPORT_KEY: test-admin-key-for-ci
+        run: |
+          pytest tests/ -v --timeout=30
+
+  docker-build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout
@@ -41,6 +90,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          pip install -r requirements.txt
+          alembic upgrade head
+
       - name: Trigger Railway deployment
         if: ${{ secrets.RAILWAY_TOKEN != '' && secrets.RAILWAY_SERVICE_ID != '' }}
         env:
@@ -48,4 +104,4 @@ jobs:
           RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
         run: |
           npm install -g @railway/cli
-          railway up --service "$RAILWAY_SERVICE_ID" --detach
+          railway up --service "$RAILWAY_SERVICE_ID"

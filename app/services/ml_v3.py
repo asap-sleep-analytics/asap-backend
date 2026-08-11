@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextlib
 import json
+import logging
 import os
-from pathlib import Path
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
+from typing import Any, TypedDict
 
 import joblib
 import librosa
@@ -13,12 +16,22 @@ import numpy as np
 from fastapi import UploadFile
 
 from app.core.config import settings
+from app.utils.audio import convert_to_wav
+
+logger = logging.getLogger(__name__)
 
 SR = 16000
 SEGMENT_SEC = 30
 N_MFCC = 20
 
-MODOS = {
+
+class _ModoInfo(TypedDict):
+    umbral_alerta: float
+    umbral_critico: float
+    descripcion: str
+
+
+MODOS: dict[str, _ModoInfo] = {
     "screening": {
         "umbral_alerta": 0.20,
         "umbral_critico": 0.55,
@@ -34,10 +47,10 @@ MODOS = {
 
 @dataclass(slots=True)
 class DualModelArtifacts:
-    model_spo2: object
-    model_audio: object
-    scaler_spo2: object
-    scaler_audio: object
+    model_spo2: Any
+    model_audio: Any
+    scaler_spo2: Any
+    scaler_audio: Any
     metadata: dict
     weight_spo2: float
     weight_audio: float
@@ -79,10 +92,16 @@ def _load_artifacts() -> DualModelArtifacts:
                 f"Faltan artefactos ML v3 en {root}: {', '.join(missing)}"
             )
 
-        model_spo2 = joblib.load(files["model_spo2"])
-        model_audio = joblib.load(files["model_audio"])
-        scaler_spo2 = joblib.load(files["scaler_spo2"])
-        scaler_audio = joblib.load(files["scaler_audio"])
+        try:
+            model_spo2 = joblib.load(files["model_spo2"])
+            model_audio = joblib.load(files["model_audio"])
+            scaler_spo2 = joblib.load(files["scaler_spo2"])
+            scaler_audio = joblib.load(files["scaler_audio"])
+        except Exception as exc:
+            logger.error("Artefactos ML v3 corruptos o incompatibles: %s", exc)
+            raise FileNotFoundError(
+                f"Artefactos ML v3 no cargables en {root}. Revisa la instalación."
+            ) from exc
 
         with files["metadata"].open(encoding="utf-8") as handle:
             metadata = json.load(handle)
@@ -187,16 +206,33 @@ async def predict_dual_mode(
     except ValueError as exc:
         raise ValueError("Formato SpO2 invalido. Ejemplo: 95,94,93,91") from exc
 
-    artifacts = _load_artifacts()
+    _ALLOWED_MIME = {"audio/wav", "audio/wave", "audio/x-wav", "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/mpeg", "audio/x-mpeg"}
+    if audio.content_type and audio.content_type not in _ALLOWED_MIME:
+        raise ValueError(f"Tipo de archivo no soportado: {audio.content_type}")
 
+    # Validar y leer el audio ANTES de cargar modelos: evita DoS por archivos
+    # gigantes y no toca disco/modelos si el archivo es inválido.
     suffix = os.path.splitext(audio.filename or "audio.wav")[1] or ".wav"
-    tmp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    converted_audio_path = None
 
     try:
-        tmp_file.write(await audio.read())
-        tmp_file.close()
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_file:
+            payload = await audio.read(settings.max_v3_audio_size_bytes + 1)
+            if not payload:
+                raise ValueError("Audio vacío.")
+            if len(payload) > settings.max_v3_audio_size_bytes:
+                raise ValueError("Audio demasiado grande para procesamiento.")
+            tmp_file.write(payload)
+            audio_path = tmp_file.name
 
-        y, _ = librosa.load(tmp_file.name, sr=SR, mono=True)
+        artifacts = _load_artifacts()
+
+        # Convertir a WAV si es necesario (librosa tiene problemas con m4a)
+        if not audio_path.lower().endswith('.wav'):
+            converted_audio_path = convert_to_wav(audio_path)
+            audio_path = converted_audio_path
+
+        y, _ = librosa.load(audio_path, sr=SR, mono=True)
 
         if len(y) < SR * 2:
             raise ValueError("Audio demasiado corto minimo 2 segundos")
@@ -239,7 +275,10 @@ async def predict_dual_mode(
             "version": str(artifacts.metadata.get("version", "v3")),
         }
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp_file.name)
-        except FileNotFoundError:
-            pass
+
+        # Limpiar archivo convertido si se creó
+        if converted_audio_path:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(converted_audio_path)

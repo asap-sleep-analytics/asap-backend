@@ -1,39 +1,21 @@
-from pathlib import Path
-from typing import Generator
 from urllib.parse import parse_qs, urlparse
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from app.db.base import Base
-from app.db.session import get_db
-from main import app
 
 
-@pytest.fixture()
-def client(tmp_path: Path) -> Generator[TestClient, None, None]:
-    test_db_file = tmp_path / "waitlist_test.db"
-    test_database_url = f"sqlite:///{test_db_file}"
-
-    engine = create_engine(test_database_url, connect_args={"check_same_thread": False})
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db():
-        db = TestingSessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
-    engine.dispose()
+def _register(client: TestClient, email: str) -> str:
+    response = client.post(
+        "/api/v1/auth/registro",
+        json={
+            "nombre_completo": "Test User",
+            "email": email,
+            "password": "ClaveSegura123",
+            "acepta_consentimiento_datos": True,
+            "acepta_disclaimer_medico": True,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["access_token"]
 
 
 def test_create_waitlist_lead(client: TestClient) -> None:
@@ -45,7 +27,7 @@ def test_create_waitlist_lead(client: TestClient) -> None:
         "source": "landing-page",
     }
 
-    response = client.post("/api/leads", json=payload)
+    response = client.post("/api/v1/leads", json=payload)
 
     assert response.status_code == 201
     body = response.json()
@@ -63,13 +45,13 @@ def test_confirm_waitlist_lead(client: TestClient) -> None:
         "source": "landing-page",
     }
 
-    create_response = client.post("/api/leads", json=payload)
+    create_response = client.post("/api/v1/leads", json=payload)
     confirmation_preview = create_response.json()["confirmation_url_preview"]
 
     parsed = urlparse(confirmation_preview)
     token = parse_qs(parsed.query)["token"][0]
 
-    confirm_response = client.get(f"/api/leads/confirm?token={token}")
+    confirm_response = client.get(f"/api/v1/leads/confirm?token={token}")
 
     assert confirm_response.status_code == 200
     confirm_body = confirm_response.json()
@@ -78,28 +60,35 @@ def test_confirm_waitlist_lead(client: TestClient) -> None:
 
 
 def test_list_waitlist_leads(client: TestClient) -> None:
+    token = _register(client, "dario.list@example.com")
+
     client.post(
-        "/api/leads",
+        "/api/v1/leads",
         json={
             "name": "Dario Test",
-            "email": "dario@example.com",
+            "email": "dario.list@example.com",
             "device": "both",
             "source": "landing-page",
         },
     )
 
-    response = client.get("/api/leads?limit=10")
+    response = client.get(
+        "/api/v1/leads?limit=10",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 200
     body = response.json()
-    assert isinstance(body, list)
-    assert len(body) >= 1
-    assert body[0]["lead_id"]
+    assert isinstance(body["items"], list)
+    assert len(body["items"]) >= 1
+    assert body["items"][0]["lead_id"]
+    assert "next_cursor" in body
+    assert "has_more" in body
 
 
 def test_resend_confirmation_rotates_token(client: TestClient) -> None:
     create_response = client.post(
-        "/api/leads",
+        "/api/v1/leads",
         json={
             "name": "Resend Test",
             "email": "resend@example.com",
@@ -112,7 +101,7 @@ def test_resend_confirmation_rotates_token(client: TestClient) -> None:
     first_token = parse_qs(urlparse(first_preview).query)["token"][0]
 
     resend_response = client.post(
-        "/api/leads/resend-confirmation",
+        "/api/v1/leads/resend-confirmation",
         json={"email": "resend@example.com"},
     )
     assert resend_response.status_code == 200
@@ -123,16 +112,16 @@ def test_resend_confirmation_rotates_token(client: TestClient) -> None:
     assert first_token != second_token
     assert resend_body["lead"]["status"] == "pending"
 
-    stale_confirmation = client.get(f"/api/leads/confirm?token={first_token}")
+    stale_confirmation = client.get(f"/api/v1/leads/confirm?token={first_token}")
     assert stale_confirmation.status_code == 400
 
-    fresh_confirmation = client.get(f"/api/leads/confirm?token={second_token}")
+    fresh_confirmation = client.get(f"/api/v1/leads/confirm?token={second_token}")
     assert fresh_confirmation.status_code == 200
 
 
 def test_resend_confirmation_nonexistent_email(client: TestClient) -> None:
     response = client.post(
-        "/api/leads/resend-confirmation",
+        "/api/v1/leads/resend-confirmation",
         json={"email": "notfound@example.com"},
     )
 

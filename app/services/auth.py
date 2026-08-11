@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,9 +31,9 @@ def register_user(db: Session, payload: UserRegisterRequest) -> AuthTokenRespons
     normalized_email = payload.email.strip().lower()
     existing = db.scalar(select(User).where(User.email == normalized_email))
     if existing:
-        raise ValueError("Ya existe una cuenta registrada con este correo.")
+        raise ValueError("No se pudo completar el registro. Revisa los datos e intenta de nuevo.")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     user = User(
         full_name=payload.nombre_completo.strip(),
@@ -50,7 +50,7 @@ def register_user(db: Session, payload: UserRegisterRequest) -> AuthTokenRespons
     db.commit()
     db.refresh(user)
 
-    token, expires_in = create_access_token(user.id, user.email)
+    token, expires_in = create_access_token(user.id, user.email, token_version=user.token_version)
     return AuthTokenResponse(
         mensaje="Registro exitoso.",
         access_token=token,
@@ -68,7 +68,7 @@ def login_user(db: Session, payload: UserLoginRequest) -> AuthTokenResponse:
     if not user.is_active:
         raise ValueError("La cuenta está desactivada.")
 
-    token, expires_in = create_access_token(user.id, user.email)
+    token, expires_in = create_access_token(user.id, user.email, token_version=user.token_version)
     return AuthTokenResponse(
         mensaje="Inicio de sesión exitoso.",
         access_token=token,

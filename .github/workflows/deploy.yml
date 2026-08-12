@@ -53,13 +53,38 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql+psycopg://asap_test:asap_test@localhost:5432/asap_test
-          AUTH_SECRET_KEY: test-key-for-ci
-          ADMIN_DATASET_EXPORT_KEY: test-admin-key-for-ci
+          AUTH_SECRET_KEY: test-key-for-ci-only-32-bytes-minimum
+          ADMIN_DATASET_EXPORT_KEY: test-admin-key-for-ci-only-32-bytes
         run: |
           pytest tests/ -v --timeout=30
 
-  docker-build-and-deploy:
+  docker-build:
     needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/asap-backend
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  docker-build-and-deploy:
+    needs: docker-build
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 

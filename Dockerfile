@@ -6,7 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
@@ -16,7 +18,8 @@ COPY . .
 
 RUN addgroup --system --gid 1001 asap && \
     adduser --system --uid 1001 --ingroup asap asap && \
-    chown -R asap:asap /app/storage /app
+    mkdir -p /app/storage && \
+    chown -R asap:asap /app
 
 USER asap
 

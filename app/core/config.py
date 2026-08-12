@@ -107,6 +107,10 @@ class Settings(BaseModel):
     admin_dataset_export_key: str = Field(
         default_factory=lambda: os.getenv("ADMIN_DATASET_EXPORT_KEY", "asap-admin-dev-key")
     )
+    metrics_token: str | None = Field(
+        default_factory=lambda: os.getenv("METRICS_TOKEN") or None,
+        description="Token Bearer requerido para GET /metrics. Vacío = sin protección (solo local).",
+    )
 
     def _warn_insecure_defaults(self) -> None:
         import warnings

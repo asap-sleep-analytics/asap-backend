@@ -1,6 +1,7 @@
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Histogram, generate_latest
 from sqlalchemy import text
@@ -16,6 +17,7 @@ from app.api.routes.sleep_v3 import router as sleep_v3_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.core.logging_ import RequestIDMiddleware, setup_logging
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.db.init_db import init_db
 from app.db.session import SessionLocal
 from app.services.ml_service import SleepModel
@@ -38,6 +40,7 @@ setup_logging()
 allow_all_origins = "*" in settings.cors_allowed_origins
 
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -77,14 +80,22 @@ def healthcheck() -> dict:
     ml_model = SleepModel()
     ml_ok = ml_model.is_trained
 
-    return {
+    payload: dict = {
         "status": "ok" if db_ok else "degraded",
         "database": "connected" if db_ok else "disconnected",
         "ml_model": "loaded" if ml_ok else "not_found",
-        "app_env": settings.app_env,
     }
+    if settings.app_env not in {"prod", "production"}:
+        payload["app_env"] = settings.app_env
+    return payload
 
 
 @app.get("/metrics", tags=["monitoring"])
-def metrics() -> Response:
+def metrics(authorization: str | None = Header(default=None)) -> Response:
+    if settings.metrics_token:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token requerido.")
+        presented = authorization.removeprefix("Bearer ").strip()
+        if not secrets.compare_digest(presented, settings.metrics_token):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token inválido.")
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

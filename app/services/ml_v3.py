@@ -212,7 +212,9 @@ async def predict_dual_mode(
 
     # Validar y leer el audio ANTES de cargar modelos: evita DoS por archivos
     # gigantes y no toca disco/modelos si el archivo es inválido.
-    suffix = os.path.splitext(audio.filename or "audio.wav")[1] or ".wav"
+    _SAFE_SUFFIXES = {".wav", ".m4a", ".aac", ".mp4", ".caf", ".mp3"}
+    raw_suffix = os.path.splitext(audio.filename or "audio.wav")[1].lower() or ".wav"
+    suffix = raw_suffix if raw_suffix in _SAFE_SUFFIXES else ".wav"
     converted_audio_path = None
 
     try:

@@ -69,7 +69,10 @@ def list_sessions_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    items, next_cursor = list_sleep_sessions(db=db, user=current_user, limit=limit, cursor=cursor)
+    try:
+        items, next_cursor = list_sleep_sessions(db=db, user=current_user, limit=limit, cursor=cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"items": items, "next_cursor": next_cursor, "has_more": next_cursor is not None}
 
 

@@ -130,12 +130,3 @@ jobs:
             --env AUTH_SECRET_KEY="$AUTH_SECRET_KEY" \
             --env ADMIN_DATASET_EXPORT_KEY="$ADMIN_DATASET_EXPORT_KEY" \
             "$IMAGE" alembic upgrade head
-
-      - name: Trigger Railway deployment
-        if: env.RAILWAY_TOKEN != '' && env.RAILWAY_SERVICE_ID != ''
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-        run: |
-          npm install -g @railway/cli
-          railway up --service "$RAILWAY_SERVICE_ID"

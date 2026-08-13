@@ -4,6 +4,8 @@ from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.core.exceptions import AppError
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,6 +66,19 @@ def register_error_handlers(app) -> None:
                 "detail": "Error interno del servidor.",
                 "code": ERROR_RESPONSES["internal_error"],
             },
+        )
+
+    @app.exception_handler(AppError)
+    async def domain_error_handler(_: Request, exc: AppError) -> JSONResponse:
+        logger.info(
+            "AppError %s %s",
+            exc.status_code,
+            exc.detail,
+            extra=_request_extra(_),
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": True, "detail": exc.detail, "code": _status_code_to_code(exc.status_code)},
         )
 
 

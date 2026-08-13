@@ -22,6 +22,7 @@ class SleepSession(Base):
     ambient_noise_level: Mapped[float | None] = mapped_column(Float, nullable=True)
     sleep_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_source: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     continuity_timeline: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
 

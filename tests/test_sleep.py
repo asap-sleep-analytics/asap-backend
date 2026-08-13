@@ -2,12 +2,14 @@ import io
 import math
 import wave
 from array import array
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import SleepDetectionLog
+from app.services.sleep import _analysis_label, _compute_sleep_score
 
 
 def _register(client: TestClient, email: str) -> str:
@@ -254,3 +256,74 @@ def test_guardar_feedback_sesion_finalizada(client: TestClient) -> None:
     assert body["ok"] is True
     assert body["feedback"]["session_id"] == session_id
     assert body["feedback"]["calificacion_descanso"] == 4
+
+
+def test_calcular_puntaje_límites() -> None:
+    base = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+
+    # Duración nula o negativa → 0
+    assert _compute_sleep_score(base, base, snore_count=0, apnea_events=0) == 0
+
+    # Puntaje está acotado en [0, 100]
+    assert _compute_sleep_score(base, base.replace(hour=10), snore_count=0, apnea_events=0) == 100
+    assert _compute_sleep_score(base, base.replace(hour=2), snore_count=9999, apnea_events=99) == 0
+
+    # Una noche limpia de 2 h da 25 puntos exactos, sin penalización
+    assert _compute_sleep_score(base, base.replace(hour=2), snore_count=0, apnea_events=0) == 25
+
+    # Las apneas penalizan más que los ronquidos
+    duration_penalized_apnea = _compute_sleep_score(base, base.replace(hour=2), snore_count=0, apnea_events=2)
+    duration_penalized_snore = _compute_sleep_score(base, base.replace(hour=2), snore_count=10, apnea_events=0)
+    assert duration_penalized_snore > duration_penalized_apnea
+
+    # El resultado coincide con la fórmula cerrada
+    score = _compute_sleep_score(base, base.replace(hour=2), snore_count=20, apnea_events=3)
+    snore_freq = 20 / 2
+    expected = int(max(0, min(100, round(2 * 12.5 - 3 * 8.0 - snore_freq * 0.75))))
+    assert score == expected
+
+
+def test_analisis_etiqueta_fuente() -> None:
+    assert _analysis_label(None, None) is None
+    assert _analysis_label("sklearn", "sklearn-1.9.0") == "Análisis con modelo de sueño entrenado"
+    assert _analysis_label("heuristic", "heuristic-amplitude-v1") == "Análisis estimado con heurística de audio"
+    assert _analysis_label("custom", "custom-v2") == "Análisis con custom"
+
+
+def test_finalizar_sesion_expone_fuente_sin_audio(client: TestClient) -> None:
+    token = _register(client, "sleep.fuente@example.com")
+
+    start = client.post(
+        "/api/v1/sleep/sesiones/iniciar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"ambient_noise_level": 33},
+    )
+    assert start.status_code == 201
+    session_id = start.json()["sesion"]["session_id"]
+
+    finish = client.post(
+        f"/api/v1/sleep/sesiones/{session_id}/finalizar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"snore_count": 4, "apnea_events": 1, "avg_oxygen": 97},
+    )
+
+    assert finish.status_code == 200
+    body = finish.json()["sesion"]
+    assert body["model_source"] is None
+    assert body["model_version"] is None
+    assert body["analysis_label"] is None
+
+
+def test_finalizar_sesion_inexistente_404(client: TestClient) -> None:
+    token = _register(client, "sleep.noexiste@example.com")
+
+    response = client.post(
+        "/api/v1/sleep/sesiones/no-existe/finalizar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"snore_count": 0, "apnea_events": 0},
+    )
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["code"] == "NOT_FOUND"
+    assert "no encontrada" in body["detail"].lower()

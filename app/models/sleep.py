@@ -46,6 +46,8 @@ class SleepSessionRecord(BaseModel):
     ambient_noise_level: float | None
     sleep_score: int | None
     model_source: str | None = None
+    model_version: str | None = None
+    analysis_label: str | None = None
     continuidad: list[SleepContinuityPoint]
     created_at: datetime
 

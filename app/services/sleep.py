@@ -8,6 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.exceptions import (
+    InvalidSessionTimeError,
+    SessionAlreadyFinishedError,
+    SessionNotFoundError,
+)
 from app.db.models import SleepDetectionLog, SleepSession, User, UserFeedback
 from app.models.sleep import (
     SleepCalibrationResponse,
@@ -21,6 +26,7 @@ from app.models.sleep import (
     SleepSessionRecord,
     SleepSessionStartRequest,
 )
+from app.repositories.sleep_sessions import get_user_sleep_session
 from app.services.audio_processor import build_session_audio_batch, cleanup_session_fragments
 from app.services.ml_service import LABEL_APNEA, LABEL_SNORE, SleepModel, WindowDetection
 
@@ -56,6 +62,16 @@ class SessionAnalysisSummary:
     model_version: str
 
 
+def _analysis_label(model_source: str | None, model_version: str | None) -> str | None:
+    if model_source is None:
+        return None
+    if model_source == "sklearn":
+        return "Análisis con modelo de sueño entrenado"
+    if model_source == "heuristic":
+        return "Análisis estimado con heurística de audio"
+    return f"Análisis con {model_source}"
+
+
 def _to_record(session: SleepSession) -> SleepSessionRecord:
     timeline_raw = session.continuity_timeline or []
     timeline = [SleepContinuityPoint(**item) for item in timeline_raw]
@@ -70,6 +86,8 @@ def _to_record(session: SleepSession) -> SleepSessionRecord:
         ambient_noise_level=session.ambient_noise_level,
         sleep_score=session.sleep_score,
         model_source=session.model_source,
+        model_version=session.model_version,
+        analysis_label=_analysis_label(session.model_source, session.model_version),
         continuidad=timeline,
         created_at=session.created_at,
     )
@@ -274,12 +292,12 @@ def finish_sleep_session(
     session_id: str,
     payload: SleepSessionFinishRequest,
 ) -> SleepSessionRecord:
-    session = db.scalar(select(SleepSession).where(SleepSession.id == session_id, SleepSession.user_id == user.id))
+    session = get_user_sleep_session(db, session_id, user)
     if not session:
-        raise ValueError("Sesión no encontrada.")
+        raise SessionNotFoundError()
 
     if session.end_time is not None:
-        raise ValueError("La sesión ya fue finalizada.")
+        raise SessionAlreadyFinishedError()
 
     end_time = payload.end_time or datetime.now(UTC)
     start_time = session.start_time
@@ -291,7 +309,7 @@ def finish_sleep_session(
         end_time = end_time.replace(tzinfo=UTC)
 
     if end_time <= start_time:
-        raise ValueError("La hora final debe ser posterior a la hora de inicio.")
+        raise InvalidSessionTimeError()
 
     total_duration_seconds = max((end_time - start_time).total_seconds(), 0)
     analysis = _analyze_session_fragments(
@@ -306,6 +324,7 @@ def finish_sleep_session(
         session.apnea_events = analysis.apnea_events
         session.continuity_timeline = analysis.continuity_timeline
         session.model_source = analysis.model_source
+        session.model_version = analysis.model_version
         if payload.ambient_noise_level is not None:
             session.ambient_noise_level = payload.ambient_noise_level
         elif analysis.ambient_noise_level is not None:
@@ -317,6 +336,7 @@ def finish_sleep_session(
         session.snore_count = payload.snore_count
         session.apnea_events = payload.apnea_events
         session.model_source = None
+        session.model_version = None
         session.continuity_timeline = []
         if payload.ambient_noise_level is not None:
             session.ambient_noise_level = payload.ambient_noise_level
@@ -369,9 +389,9 @@ def list_sleep_detection_logs(
     session_id: str,
     limit: int = 720,
 ) -> list[SleepDetectionLogRecord]:
-    session = db.scalar(select(SleepSession).where(SleepSession.id == session_id, SleepSession.user_id == user.id))
+    session = get_user_sleep_session(db, session_id, user)
     if not session:
-        raise ValueError("Sesión no encontrada.")
+        raise SessionNotFoundError()
 
     rows = db.scalars(
         select(SleepDetectionLog)
@@ -403,9 +423,9 @@ def upsert_sleep_feedback(
     session_id: str,
     payload: SleepFeedbackRequest,
 ) -> SleepFeedbackRecord:
-    session = db.scalar(select(SleepSession).where(SleepSession.id == session_id, SleepSession.user_id == user.id))
+    session = get_user_sleep_session(db, session_id, user)
     if not session:
-        raise ValueError("Sesión no encontrada.")
+        raise SessionNotFoundError()
 
     if session.end_time is None:
         raise ValueError("Solo puedes calificar sesiones finalizadas.")
@@ -449,12 +469,12 @@ async def ingest_sleep_fragment(
     fragment_index: int,
     duration_seconds: float | None,
 ) -> SleepFragmentUploadResponse:
-    session = db.scalar(select(SleepSession).where(SleepSession.id == session_id, SleepSession.user_id == user.id))
+    session = get_user_sleep_session(db, session_id, user)
     if not session:
-        raise ValueError("Sesión no encontrada.")
+        raise SessionNotFoundError()
 
     if session.end_time is not None:
-        raise ValueError("La sesión ya fue finalizada.")
+        raise SessionAlreadyFinishedError()
 
     if fragmento.content_type and fragmento.content_type not in _ALLOWED_AUDIO_MIME_TYPES:
         raise ValueError(f"Tipo de archivo no soportado: {fragmento.content_type}")

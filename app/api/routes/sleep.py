@@ -55,9 +55,7 @@ def finish_session_endpoint(
     try:
         session = finish_sleep_session(db=db, user=current_user, session_id=session_id, payload=payload)
     except ValueError as exc:
-        message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if "no encontrada" in message.lower() else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=message) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return SleepSessionResponse(mensaje="Monitoreo finalizado. Reporte listo.", sesion=session)
 
@@ -86,9 +84,7 @@ def upsert_session_feedback_endpoint(
     try:
         feedback = upsert_sleep_feedback(db=db, user=current_user, session_id=session_id, payload=payload)
     except ValueError as exc:
-        message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if "no encontrada" in message.lower() else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=message) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return SleepFeedbackResponse(mensaje="Feedback guardado correctamente.", feedback=feedback)
 
@@ -100,10 +96,7 @@ def list_session_detections_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[SleepDetectionLogRecord]:
-    try:
-        return list_sleep_detection_logs(db=db, user=current_user, session_id=session_id, limit=limit)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return list_sleep_detection_logs(db=db, user=current_user, session_id=session_id, limit=limit)
 
 
 @router.post(
@@ -132,8 +125,6 @@ async def upload_fragment_endpoint(
             duration_seconds=duration_seconds,
         )
     except ValueError as exc:
-        message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if "no encontrada" in message.lower() else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=message) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     finally:
         await fragmento.close()

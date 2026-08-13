@@ -55,8 +55,13 @@ jobs:
             const apk = (rel.assets || []).find(a => /\.apk$/i.test(a.name));
             if (!apk) { console.error("Sin APK en el release de asap-mobile"); process.exit(1); }
             const m = (rel.body || "").match(/!\[QR del APK\]\((https?:\/\/[^)\s]+)\)/);
+            const qr = m ? m[1] : "";
+            if (qr) {
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `qr_url=${qr}\n`);
+            } else {
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `qr_url=${"https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=" + encodeURIComponent("https://github.com/asap-sleep-analytics/asap-mobile/releases/download/${{ steps.resolve.outputs.mobile_tag }}/asap-mobile-${{ steps.resolve.outputs.mobile_tag }}.apk")}\n`);
+            }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `apk_url=${apk.browser_download_url}\n`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `qr_url=${m ? m[1] : ""}\n`);
           '
 
       - name: Descargar APK

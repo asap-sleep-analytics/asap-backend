@@ -1,0 +1,86 @@
+name: Espejo release beta APK (mobile)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag del release en asap-mobile (ej. v0.1.0). Vacío = release más reciente.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver tag del release de asap-mobile
+        id: resolve
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+            mobile_tag="${{ inputs.tag }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            mobile_tag="${{ github.ref_name }}"
+          else
+            mobile_tag=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/asap-sleep-analytics/asap-mobile/releases/latest" \
+              | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).tag_name')
+          fi
+          echo "mobile_tag=$mobile_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Obtener release de asap-mobile
+        id: mobile
+        run: |
+          for i in $(seq 1 50); do
+            if curl -fsSL -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/asap-sleep-analytics/asap-mobile/releases/tags/${{ steps.resolve.outputs.mobile_tag }}" \
+              -o mobile_release.json; then
+              echo "Release encontrado"
+              break
+            fi
+            sleep 20
+          done
+          test -s mobile_release.json && grep -q '"tag_name"' mobile_release.json || { echo "No se pudo obtener el release tras varios intentos"; exit 1; }
+          node -e '
+            const fs = require("fs");
+            const rel = JSON.parse(fs.readFileSync("mobile_release.json", "utf8"));
+            const apk = (rel.assets || []).find(a => /\.apk$/i.test(a.name));
+            if (!apk) { console.error("Sin APK en el release de asap-mobile"); process.exit(1); }
+            const m = (rel.body || "").match(/!\[QR del APK\]\((https?:\/\/[^)\s]+)\)/);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `apk_url=${apk.browser_download_url}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `qr_url=${m ? m[1] : ""}\n`);
+          '
+
+      - name: Descargar APK
+        run: |
+          curl -fsSL -o "asap-mobile-${{ steps.resolve.outputs.mobile_tag }}.apk" "${{ steps.mobile.outputs.apk_url }}"
+
+      - name: Publicar release espejo en este repo
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "asap-mobile-${{ steps.resolve.outputs.mobile_tag }}.apk"
+          tag_name: ${{ steps.resolve.outputs.mobile_tag }}
+          body: |
+            ## Instalación (Android)
+
+            Escanea el QR con la cámara de tu teléfono para instalar el APK:
+
+            ![QR del APK](${{ steps.mobile.outputs.qr_url }})
+
+            O descarga el archivo `asap-mobile-${{ steps.resolve.outputs.mobile_tag }}.apk` (adjunto abajo) e instálalo en tu teléfono.
+
+            > Para instalar el APK, tu teléfono debe tener permitido "Instalar apps de fuentes desconocidas".
+
+            ## Detalles
+
+            - Espejo del release de [asap-mobile](https://github.com/asap-sleep-analytics/asap-mobile/releases/tag/${{ steps.resolve.outputs.mobile_tag }})
+            - App: `asap-mobile`
+            - Tag: `${{ steps.resolve.outputs.mobile_tag }}`

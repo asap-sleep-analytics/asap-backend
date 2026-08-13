@@ -202,8 +202,14 @@ alembic upgrade head
 Levantar API:
 
 ```bash
-uvicorn main:app --reload
+# Desarrollo: escucha en todas las interfaces para que el teléfono
+# pueda conectarse por la IP local (ej. 192.168.x.x:8000).
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+> Si lanzas `uvicorn main:app` sin `--host 0.0.0.0`, escuchará solo en
+> `localhost` y la app móvil (que apunta a la IP de tu red) no podrá
+> conectarse. Usa el comando de arriba cuando pruebes desde el dispositivo.
 
 Ejecutar pruebas:
 

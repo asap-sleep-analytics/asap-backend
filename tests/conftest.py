@@ -38,13 +38,13 @@ def _build_test_engine(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def _reset_rate_limiter() -> Generator[None, None, None]:
+def _reset_rate_limiter() -> Generator[None]:
     reset_rate_limiter_for_tests()
     yield
 
 
 @pytest.fixture()
-def client(tmp_path: Path) -> Generator[TestClient, None, None]:
+def client(tmp_path: Path) -> Generator[TestClient]:
     engine, _ = _build_test_engine(tmp_path)
     testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)

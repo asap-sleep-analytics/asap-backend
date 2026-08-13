@@ -9,14 +9,14 @@ from app.core.rate_limit import InMemoryRateLimiter, rate_limit_dependency, rese
 
 
 @pytest.fixture(autouse=True)
-def _limpiar_limiter() -> Generator[None, None, None]:
+def _limpiar_limiter() -> Generator[None]:
     reset_rate_limiter_for_tests()
     yield
     reset_rate_limiter_for_tests()
 
 
 @pytest.fixture()
-def _rate_limit_habilitado() -> Generator[None, None, None]:
+def _rate_limit_habilitado() -> Generator[None]:
     with patch("app.core.rate_limit._rate_limit_disabled", return_value=False):
         yield
 

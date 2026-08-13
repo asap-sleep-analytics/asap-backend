@@ -34,7 +34,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install dependencies
@@ -56,7 +56,7 @@ jobs:
           AUTH_SECRET_KEY: test-key-for-ci-only-32-bytes-minimum
           ADMIN_DATASET_EXPORT_KEY: test-admin-key-for-ci-only-32-bytes
         run: |
-          pytest tests/ -v --timeout=30
+          pytest tests/ --timeout=30 --cov=app --cov-report=term-missing --cov-fail-under=80
 
   docker-build:
     needs: test

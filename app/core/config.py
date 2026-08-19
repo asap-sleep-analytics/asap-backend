@@ -73,7 +73,7 @@ class Settings(BaseModel):
     lead_confirm_url_base: str = Field(
         default_factory=lambda: os.getenv(
             "LEAD_CONFIRM_URL_BASE",
-            "http://127.0.0.1:8000/api/leads/confirm",
+            "http://127.0.0.1:8000/api/v1/leads/confirm",
         )
     )
     lead_token_ttl_hours: int = Field(default_factory=lambda: _env_int("LEAD_TOKEN_TTL_HOURS", 24))

@@ -10,7 +10,7 @@ os.environ.setdefault("ML_V3_MODEL_DIR", os.path.join(os.getcwd(), "tests", "_em
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 
 from app.core.rate_limit import reset_rate_limiter_for_tests  # noqa: E402
 from app.db.base import Base  # noqa: E402
@@ -64,3 +64,15 @@ def client(tmp_path: Path) -> Generator[TestClient]:
     app.dependency_overrides.clear()
     app.state.test_engine = None
     engine.dispose()
+
+
+@pytest.fixture()
+def db_session(client: TestClient) -> Generator[Session]:
+    """Sesión aislada sobre el motor de pruebas creado por `client`."""
+    engine = app.state.test_engine
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()

@@ -55,12 +55,12 @@ def _fetch_jwks(jwks_url: str) -> dict[str, Any]:
     return jwks
 
 
-def _get_public_key(jwks: dict[str, Any], token_headers: dict[str, Any]) -> str:
+def _get_public_key(jwks: dict[str, Any], token_headers: dict[str, Any]) -> jwt.PyJWK:
     kid = token_headers.get("kid")
     for key in jwks.get("keys", []):
         if kid and key.get("kid") == kid:
             try:
-                return jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+                return jwt.PyJWK.from_dict(key)
             except Exception as exc:  # noqa: BLE001
                 raise SocialAuthError("Clave pública inválida del proveedor.") from exc
     raise SocialAuthError("No se encontró la clave del proveedor para validar la sesión.")
@@ -70,7 +70,7 @@ def _decode_token(
     id_token: str,
     jwks_url: str,
     audience: str | list[str],
-    issuer: str,
+    issuer: str | set[str],
 ) -> dict[str, Any]:
     try:
         token_headers = jwt.get_unverified_header(id_token)

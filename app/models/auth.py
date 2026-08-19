@@ -62,6 +62,7 @@ class UserPublic(BaseModel):
     ronca_habitualmente: bool
     cansancio_diurno: bool
     creado_en: datetime
+    email_verificado: bool = Field(default=False)
 
 
 class AuthTokenResponse(BaseModel):
@@ -71,3 +72,26 @@ class AuthTokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     usuario: UserPublic
+
+
+class MessageResponse(BaseModel):
+    ok: bool = True
+    mensaje: str
+
+
+class EmailVerificationSendResponse(BaseModel):
+    ok: bool = True
+    mensaje: str
+    verificacion_url_preview: str | None = Field(
+        default=None,
+        description="Solo disponible cuando SMTP no está configurado (desarrollo local).",
+    )
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=128)
+    nueva_password: str = Field(..., min_length=8, max_length=128)

@@ -52,39 +52,22 @@ def _build_from_header() -> str:
     return f"{name} <{settings.smtp_from_email}>"
 
 
-def send_waitlist_confirmation_email(name: str, email: str, confirmation_url: str) -> bool:
+def _send_email(subject: str, to_email: str, text_body: str, html_body: str) -> bool:
     try:
         host, port, username, use_tls, use_ssl = _smtp_connection_settings()
     except ValueError:
-        logger.info("SMTP no configurado. Usa confirmation_url_preview durante desarrollo local.")
+        logger.info("SMTP no configurado. Revisa las variables SMTP_* o usa preview en desarrollo local.")
         return False
 
     message = EmailMessage()
-    message["Subject"] = "Confirma tu registro en la lista de espera de A.S.A.P."
+    message["Subject"] = subject
     message["From"] = _build_from_header()
-    message["To"] = email
+    message["To"] = to_email
     if settings.smtp_reply_to:
         message["Reply-To"] = settings.smtp_reply_to
 
-    message.set_content(
-
-            f"Hola {name},\n\n"
-            "Confirma tu correo para unirte a la lista de espera de A.S.A.P.\n"
-            f"Enlace de confirmación: {confirmation_url}\n\n"
-            "Si no solicitaste este registro, puedes ignorar este mensaje."
-
-    )
-    message.add_alternative(
-        (
-            "<html><body>"
-            f"<p>Hola {name},</p>"
-            "<p>Confirma tu correo para unirte a la lista de espera de A.S.A.P.</p>"
-            f"<p><a href=\"{confirmation_url}\">Confirmar mi correo</a></p>"
-            "<p>Si no solicitaste este registro, puedes ignorar este mensaje.</p>"
-            "</body></html>"
-        ),
-        subtype="html",
-    )
+    message.set_content(text_body)
+    message.add_alternative(html_body, subtype="html")
 
     try:
         smtp_client = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
@@ -98,5 +81,70 @@ def send_waitlist_confirmation_email(name: str, email: str, confirmation_url: st
             smtp.send_message(message)
         return True
     except Exception as exc:  # pragma: no cover - depends on external SMTP server
-        logger.exception("No se pudo enviar el correo de confirmación: %s", exc)
+        logger.exception("No se pudo enviar el correo: %s", exc)
         return False
+
+
+def send_waitlist_confirmation_email(name: str, email: str, confirmation_url: str) -> bool:
+    return _send_email(
+        subject="Confirma tu registro en la lista de espera de A.S.A.P.",
+        to_email=email,
+        text_body=(
+            f"Hola {name},\n\n"
+            "Confirma tu correo para unirte a la lista de espera de A.S.A.P.\n"
+            f"Enlace de confirmación: {confirmation_url}\n\n"
+            "Si no solicitaste este registro, puedes ignorar este mensaje."
+        ),
+        html_body=(
+            "<html><body>"
+            f"<p>Hola {name},</p>"
+            "<p>Confirma tu correo para unirte a la lista de espera de A.S.A.P.</p>"
+            f"<p><a href=\"{confirmation_url}\">Confirmar mi correo</a></p>"
+            "<p>Si no solicitaste este registro, puedes ignorar este mensaje.</p>"
+            "</body></html>"
+        ),
+    )
+
+
+def send_email_verification_email(name: str, email: str, verification_url: str) -> bool:
+    return _send_email(
+        subject="Verifica tu correo en A.S.A.P.",
+        to_email=email,
+        text_body=(
+            f"Hola {name},\n\n"
+            "Último paso para activar tu cuenta de A.S.A.P.: verifica tu correo.\n"
+            f"Enlace de verificación: {verification_url}\n\n"
+            "Si no creaste una cuenta, puedes ignorar este mensaje."
+        ),
+        html_body=(
+            "<html><body>"
+            f"<p>Hola {name},</p>"
+            "<p>Último paso para activar tu cuenta de A.S.A.P.: verifica tu correo.</p>"
+            f"<p><a href=\"{verification_url}\">Verificar mi correo</a></p>"
+            "<p>Si no creaste una cuenta, puedes ignorar este mensaje.</p>"
+            "</body></html>"
+        ),
+    )
+
+
+def send_password_reset_email(name: str, email: str, reset_url: str) -> bool:
+    return _send_email(
+        subject="Restablece tu contraseña en A.S.A.P.",
+        to_email=email,
+        text_body=(
+            f"Hola {name},\n\n"
+            "Recibimos una solicitud para restablecer tu contraseña de A.S.A.P.\n"
+            f"Enlace de restablecimiento: {reset_url}\n\n"
+            "Si no solicitaste este cambio, puedes ignorar este mensaje y tu contraseña"
+            " seguirá siendo la misma."
+        ),
+        html_body=(
+            "<html><body>"
+            f"<p>Hola {name},</p>"
+            "<p>Recibimos una solicitud para restablecer tu contraseña de A.S.A.P.</p>"
+            f"<p><a href=\"{reset_url}\">Restablecer mi contraseña</a></p>"
+            "<p>Si no solicitaste este cambio, puedes ignorar este mensaje y tu contraseña"
+            " seguirá siendo la misma.</p>"
+            "</body></html>"
+        ),
+    )

@@ -78,6 +78,25 @@ class Settings(BaseModel):
     )
     lead_token_ttl_hours: int = Field(default_factory=lambda: _env_int("LEAD_TOKEN_TTL_HOURS", 24))
 
+    auth_email_verify_url_base: str = Field(
+        default_factory=lambda: os.getenv(
+            "AUTH_EMAIL_VERIFY_URL_BASE",
+            "http://127.0.0.1:8000/api/v1/auth/email/verificar",
+        )
+    )
+    auth_email_verify_token_ttl_minutes: int = Field(
+        default_factory=lambda: _env_int("AUTH_EMAIL_VERIFY_TOKEN_TTL_MINUTES", 60)
+    )
+    auth_password_reset_url_base: str = Field(
+        default_factory=lambda: os.getenv(
+            "AUTH_PASSWORD_RESET_URL_BASE",
+            "http://127.0.0.1:8000/api/v1/auth/password/restablecer",
+        )
+    )
+    auth_password_reset_token_ttl_minutes: int = Field(
+        default_factory=lambda: _env_int("AUTH_PASSWORD_RESET_TOKEN_TTL_MINUTES", 30)
+    )
+
     smtp_host: str | None = Field(default_factory=lambda: os.getenv("SMTP_HOST"))
     smtp_port: int | None = Field(default_factory=lambda: _env_optional_int("SMTP_PORT"))
     smtp_provider: str = Field(default_factory=lambda: os.getenv("SMTP_PROVIDER", "custom"))

@@ -7,8 +7,21 @@ from app.core.rate_limit import rate_limit_dependency
 from app.core.security import create_access_token, get_current_user, revoke_user_tokens
 from app.db.models import User
 from app.db.session import get_db
-from app.models.auth import AuthTokenResponse, UserLoginRequest, UserPublic, UserRegisterRequest
-from app.services.auth import get_profile, login_user, register_user
+from app.models.auth import (
+    AuthTokenResponse,
+    SocialLoginRequest,
+    UserLoginRequest,
+    UserPublic,
+    UserRegisterRequest,
+)
+from app.services.auth import (
+    LegalAcceptanceError,
+    delete_user_data,
+    get_profile,
+    login_social,
+    login_user,
+    register_user,
+)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["autenticacion"])
 
@@ -37,6 +50,20 @@ def login_user_endpoint(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
+@router.post("/social/login", response_model=AuthTokenResponse)
+def social_login_endpoint(
+    payload: Annotated[SocialLoginRequest, Body()],
+    _: None = Depends(rate_limit_dependency(max_requests=5, window_seconds=60)),
+    db: Session = Depends(get_db),
+) -> AuthTokenResponse:
+    try:
+        return login_social(db=db, payload=payload)
+    except LegalAcceptanceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
 @router.post("/refresh", response_model=AuthTokenResponse)
 def refresh_token_endpoint(
     current_user: User = Depends(get_current_user),
@@ -51,6 +78,7 @@ def refresh_token_endpoint(
             nombre_completo=current_user.full_name,
             email=current_user.email,
             activo=current_user.is_active,
+            metodo_ingreso=current_user.auth_provider,
             ronca_habitualmente=current_user.ronca_habitualmente,
             cansancio_diurno=current_user.cansancio_diurno,
             creado_en=current_user.created_at,
@@ -69,3 +97,12 @@ def logout_endpoint(
 @router.get("/perfil", response_model=UserPublic)
 def profile_endpoint(current_user: User = Depends(get_current_user)) -> UserPublic:
     return get_profile(current_user)
+
+
+@router.delete("/cuenta", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account_endpoint(
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(rate_limit_dependency(max_requests=3, window_seconds=60)),
+    db: Session = Depends(get_db),
+) -> None:
+    delete_user_data(db=db, user=current_user)

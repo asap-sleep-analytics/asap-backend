@@ -10,6 +10,7 @@ def _register(client: TestClient, email: str) -> str:
             "nombre_completo": "Test User",
             "email": email,
             "password": "ClaveSegura123",
+            "acepta_terminos_condiciones": True,
             "acepta_consentimiento_datos": True,
             "acepta_disclaimer_medico": True,
         },

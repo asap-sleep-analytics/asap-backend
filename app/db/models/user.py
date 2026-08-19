@@ -20,8 +20,14 @@ class User(Base):
         Integer, nullable=False, default=1, server_default=text("1")
     )
 
+    auth_provider: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="local", server_default="local"
+    )
+    social_subject: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
     ronca_habitualmente: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cansancio_diurno: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     informed_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     medical_disclaimer_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -25,9 +25,12 @@ Waitlist:
 
 Autenticacion:
 
-- `POST /api/auth/registro`
-- `POST /api/auth/login`
-- `GET /api/auth/perfil` (requiere `Authorization: Bearer <token>`)
+- `POST /api/v1/auth/registro` (requiere aceptar términos y condiciones, consentimiento Ley 1581 y disclaimer médico)
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/social/login` (login/registro con `google` o `apple` vía identity token)
+- `POST /api/v1/auth/refresh` (requiere `Authorization: Bearer <token>`)
+- `POST /api/v1/auth/logout` (revoca tokens)
+- `GET /api/v1/auth/perfil` (requiere `Authorization: Bearer <token>`)
 
 Dashboard:
 
@@ -144,6 +147,29 @@ Si SMTP no esta configurado, la API devuelve `confirmation_url_preview` para pru
 3. Inicio de sesion nocturna (`/api/sleep/sesiones/iniciar`).
 4. Finalizacion de sesion y score inmediato (`/api/sleep/sesiones/{id}/finalizar`).
 5. Dashboard con 3 indicadores: Sleep Score, eventos apnea/ronquido y continuidad nocturna.
+
+## Login Social (Google / Apple)
+
+`POST /api/v1/auth/social/login` recibe:
+
+```json
+{
+  "provider": "google",
+  "id_token": "<identity token del SDK del proveedor>",
+  "acepta_terminos_condiciones": true,
+  "acepta_consentimiento_datos": true,
+  "acepta_disclaimer_medico": true
+}
+```
+
+Flujo:
+
+1. El cliente obtiene el identity token con el SDK del proveedor (Google Sign-In / Sign in with Apple).
+2. El backend valida firma (JWKS), emisor, audiencia y caducidad con `GOOGLE_CLIENT_ID` o `APPLE_CLIENT_ID`.
+3. Si ya existe una cuenta con ese correo, inicia sesión y vincula el proveedor.
+4. Si es una cuenta nueva, la crea (requiere aceptación legal) y emite el token JWT de A.S.A.P.
+
+La cuenta queda marcada con `auth_provider` y `social_subject`, y el perfil expone `metodo_ingreso` (`local`, `google` o `apple`) en `GET /api/v1/auth/perfil`.
 
 ## SMTP En Produccion
 

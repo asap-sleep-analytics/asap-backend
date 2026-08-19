@@ -10,6 +10,7 @@ def test_registro_exitoso(client: TestClient) -> None:
             "password": "ClaveSegura123",
             "ronca_habitualmente": True,
             "cansancio_diurno": True,
+            "acepta_terminos_condiciones": True,
             "acepta_consentimiento_datos": True,
             "acepta_disclaimer_medico": True,
         },
@@ -30,6 +31,7 @@ def test_registro_duplicado(client: TestClient) -> None:
         "password": "ClaveSegura123",
         "ronca_habitualmente": False,
         "cansancio_diurno": False,
+        "acepta_terminos_condiciones": True,
         "acepta_consentimiento_datos": True,
         "acepta_disclaimer_medico": True,
     }
@@ -50,6 +52,7 @@ def test_login_y_perfil(client: TestClient) -> None:
             "password": "ClaveSegura123",
             "ronca_habitualmente": False,
             "cansancio_diurno": True,
+            "acepta_terminos_condiciones": True,
             "acepta_consentimiento_datos": True,
             "acepta_disclaimer_medico": True,
         },
@@ -95,6 +98,22 @@ def test_registro_rechazado_sin_consentimiento(client: TestClient) -> None:
             "email": "sin.consentimiento@example.com",
             "password": "ClaveSegura123",
             "acepta_consentimiento_datos": False,
+            "acepta_disclaimer_medico": True,
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_registro_rechazado_sin_terminos(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/registro",
+        json={
+            "nombre_completo": "Sin Terminos",
+            "email": "sin.terminos@example.com",
+            "password": "ClaveSegura123",
+            "acepta_terminos_condiciones": False,
+            "acepta_consentimiento_datos": True,
             "acepta_disclaimer_medico": True,
         },
     )

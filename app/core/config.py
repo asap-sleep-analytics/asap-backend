@@ -104,6 +104,13 @@ class Settings(BaseModel):
     )
     auth_issuer: str = Field(default_factory=lambda: os.getenv("AUTH_ISSUER", "asap-backend"))
 
+    google_client_ids: list[str] = Field(
+        default_factory=lambda: _env_list("GOOGLE_CLIENT_ID", []),
+        description="Client IDs de Google OAuth (Web/Android/iOS) separados por coma. Se validan como audiencia.",
+    )
+    apple_client_id: str | None = Field(default_factory=lambda: os.getenv("APPLE_CLIENT_ID") or None)
+    apple_team_id: str | None = Field(default_factory=lambda: os.getenv("APPLE_TEAM_ID") or None)
+
     admin_dataset_export_key: str = Field(
         default_factory=lambda: os.getenv("ADMIN_DATASET_EXPORT_KEY", "asap-admin-dev-key")
     )

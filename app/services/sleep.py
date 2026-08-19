@@ -406,22 +406,27 @@ def list_sleep_sessions(
     limit: int = 20,
     cursor: str | None = None,
 ) -> tuple[list[SleepSessionRecord], str | None]:
+    from app.models.pagination import decode_cursor_parts, encode_cursor_parts
+
     query = select(SleepSession).where(SleepSession.user_id == user.id)
 
     if cursor:
-        from app.models.pagination import decode_cursor
-        cursor_dt = datetime.fromisoformat(decode_cursor(cursor))
-        query = query.where(SleepSession.start_time < cursor_dt)
+        start_time_iso, row_id = decode_cursor_parts(cursor)
+        cursor_dt = datetime.fromisoformat(start_time_iso)
+        query = query.where(
+            (SleepSession.start_time < cursor_dt)
+            | ((SleepSession.start_time == cursor_dt) & (SleepSession.id < row_id))
+        )
 
-    query = query.order_by(SleepSession.start_time.desc()).limit(limit + 1)
+    query = query.order_by(SleepSession.start_time.desc(), SleepSession.id.desc()).limit(limit + 1)
     rows = db.scalars(query).all()
 
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor: str | None = None
     if has_more and items:
-        from app.models.pagination import encode_cursor
-        next_cursor = encode_cursor(items[-1].start_time.isoformat())
+        last = items[-1]
+        next_cursor = encode_cursor_parts([last.start_time.isoformat(), last.id])
 
     return [_to_record(item) for item in items], next_cursor
 
@@ -431,17 +436,35 @@ def list_sleep_detection_logs(
     user: User,
     session_id: str,
     limit: int = 720,
-) -> list[SleepDetectionLogRecord]:
+    cursor: str | None = None,
+) -> tuple[list[SleepDetectionLogRecord], str | None]:
+    from app.models.pagination import decode_cursor_parts, encode_cursor_parts
+
     session = get_user_sleep_session(db, session_id, user)
     if not session:
         raise SessionNotFoundError()
 
-    rows = db.scalars(
+    query = (
         select(SleepDetectionLog)
         .where(SleepDetectionLog.session_id == session_id)
         .order_by(SleepDetectionLog.window_index.asc(), SleepDetectionLog.id.asc())
-        .limit(limit)
-    ).all()
+    )
+
+    if cursor:
+        window_str, row_id = decode_cursor_parts(cursor)
+        query = query.where(
+            (SleepDetectionLog.window_index > int(window_str))
+            | ((SleepDetectionLog.window_index == int(window_str)) & (SleepDetectionLog.id > int(row_id)))
+        )
+
+    rows = db.scalars(query.limit(limit + 1)).all()
+
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_cursor: str | None = None
+    if has_more and items:
+        last = items[-1]
+        next_cursor = encode_cursor_parts([str(last.window_index), str(last.id)])
 
     return [
         SleepDetectionLogRecord(
@@ -456,8 +479,8 @@ def list_sleep_detection_logs(
             model_version=row.model_version,
             created_at=row.created_at,
         )
-        for row in rows
-    ]
+        for row in items
+    ], next_cursor
 
 
 def upsert_sleep_feedback(

@@ -159,21 +159,26 @@ def list_waitlist_leads(
     limit: int = 20,
     cursor: str | None = None,
 ) -> tuple[list[WaitlistLeadRecord], str | None]:
+    from app.models.pagination import decode_cursor_parts, encode_cursor_parts
+
     query = select(Lead)
 
     if cursor:
-        from app.models.pagination import decode_cursor
-        cursor_dt = datetime.fromisoformat(decode_cursor(cursor))
-        query = query.where(Lead.created_at < cursor_dt)
+        created_iso, row_id = decode_cursor_parts(cursor)
+        cursor_dt = datetime.fromisoformat(created_iso)
+        query = query.where(
+            (Lead.created_at < cursor_dt)
+            | ((Lead.created_at == cursor_dt) & (Lead.id < row_id))
+        )
 
-    query = query.order_by(Lead.created_at.desc()).limit(limit + 1)
+    query = query.order_by(Lead.created_at.desc(), Lead.id.desc()).limit(limit + 1)
     rows = db.scalars(query).all()
 
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor: str | None = None
     if has_more and items:
-        from app.models.pagination import encode_cursor
-        next_cursor = encode_cursor(items[-1].created_at.isoformat())
+        last = items[-1]
+        next_cursor = encode_cursor_parts([last.created_at.isoformat(), last.id])
 
     return [_to_record(item) for item in items], next_cursor

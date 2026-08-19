@@ -24,7 +24,7 @@ async def sleep_v3_predict(
     _: None = Depends(rate_limit_dependency(max_requests=10, window_seconds=60)),
     current_user: User = Depends(get_current_user),
     audio: UploadFile = File(..., description="Audio WAV de 30s grabado pasivamente"),
-    spo2: str = Query(default="95,95,94,94,95", description="Valores SpO2 separados por coma"),
+    spo2: str = Query(default="", description="Valores SpO2 separados por coma (opcional: si viaja vacío se infiere solo con audio)"),
     modo: str = Query(default="screening", description="Modo clinico: screening o seguimiento"),
     perfil: str = Query(default="general", description="Perfil del paciente"),
 ) -> SleepV3PredictResponse:

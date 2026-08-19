@@ -200,11 +200,15 @@ async def predict_dual_mode(
     if modo not in MODOS:
         raise ValueError("Modo invalido. Usar: screening | seguimiento")
 
-    try:
-        spo2_list = [float(x.strip()) for x in spo2.split(",")]
-        spo2_drop = calcular_spo2_drop(spo2_list)
-    except ValueError as exc:
-        raise ValueError("Formato SpO2 invalido. Ejemplo: 95,94,93,91") from exc
+    spo2_list: list[float] = []
+    if spo2 and spo2.strip():
+        try:
+            spo2_list = [float(x.strip()) for x in spo2.split(",")]
+        except ValueError as exc:
+            raise ValueError("Formato SpO2 invalido. Ejemplo: 95,94,93,91") from exc
+
+    has_spo2 = len(spo2_list) > 0
+    spo2_drop = calcular_spo2_drop(spo2_list) if has_spo2 else 0.0
 
     _ALLOWED_MIME = {"audio/wav", "audio/wave", "audio/x-wav", "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/mpeg", "audio/x-mpeg"}
     if audio.content_type and audio.content_type not in _ALLOWED_MIME:
@@ -249,10 +253,14 @@ async def predict_dual_mode(
         audio_feat_s = artifacts.scaler_audio.transform(audio_feat)
         prob_audio = float(artifacts.model_audio.predict_proba(audio_feat_s)[0][1])
 
-        spo2_feat = artifacts.scaler_spo2.transform(np.array([[spo2_drop]]))
-        prob_spo2 = float(artifacts.model_spo2.predict_proba(spo2_feat)[0][1])
+        if has_spo2:
+            spo2_feat = artifacts.scaler_spo2.transform(np.array([[spo2_drop]]))
+            prob_spo2 = float(artifacts.model_spo2.predict_proba(spo2_feat)[0][1])
+            prob_final = artifacts.weight_spo2 * prob_spo2 + artifacts.weight_audio * prob_audio
+        else:
+            prob_spo2 = 0.0
+            prob_final = prob_audio
 
-        prob_final = artifacts.weight_spo2 * prob_spo2 + artifacts.weight_audio * prob_audio
         nivel = clasificar_nivel(prob_final, modo)
 
         interpretacion = {

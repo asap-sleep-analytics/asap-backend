@@ -15,6 +15,7 @@ from app.core.exceptions import (
 )
 from app.db.models import SleepDetectionLog, SleepSession, User, UserFeedback
 from app.models.sleep import (
+    LivePrediction,
     SleepCalibrationResponse,
     SleepContinuityPoint,
     SleepDetectionLogRecord,
@@ -28,7 +29,7 @@ from app.models.sleep import (
 )
 from app.repositories.sleep_sessions import get_user_sleep_session
 from app.services.audio_processor import build_session_audio_batch, cleanup_session_fragments
-from app.services.ml_service import LABEL_APNEA, LABEL_SNORE, SleepModel, WindowDetection
+from app.services.ml_service import LABEL_APNEA, LABEL_NORMAL, LABEL_SNORE, SleepModel, WindowDetection
 
 _FRAGMENT_ROOT = Path(settings.sleep_fragment_root)
 _ALLOWED_AUDIO_EXTENSIONS = {".m4a", ".wav", ".aac", ".mp4", ".caf"}
@@ -69,6 +70,8 @@ def _analysis_label(model_source: str | None, model_version: str | None) -> str 
         return "Análisis con modelo de sueño entrenado"
     if model_source == "heuristic":
         return "Análisis estimado con heurística de audio"
+    if model_source == "ml_v3":
+        return "Análisis con modelo v3 (audio + SpO2)"
     return f"Análisis con {model_source}"
 
 
@@ -237,6 +240,32 @@ def _analyze_session_fragments(session_id: str, total_duration_seconds: float) -
     )
 
 
+def _build_live_prediction_summary(predicciones: list[LivePrediction], snore_count: int, total_duration_seconds: float) -> SessionAnalysisSummary:
+    apnea_events = sum(1 for pred in predicciones if pred.nivel in {"ALERTA", "CRITICO"})
+    detections = [
+        WindowDetection(
+            window_index=pred.window_index,
+            start_second=pred.start_second,
+            end_second=pred.end_second,
+            label=LABEL_APNEA if pred.nivel in {"ALERTA", "CRITICO"} else LABEL_NORMAL,
+            confidence=float(max(0.05, min(0.99, pred.probabilidad))),
+        )
+        for pred in predicciones
+    ]
+    return SessionAnalysisSummary(
+        snore_count=snore_count,
+        apnea_events=apnea_events,
+        continuity_timeline=_build_continuity_timeline_from_detections(
+            detections=detections,
+            duration_seconds=total_duration_seconds,
+        ),
+        ambient_noise_level=None,
+        detections=detections,
+        model_source="ml_v3",
+        model_version="v3",
+    )
+
+
 def _persist_detection_logs(db: Session, session_id: str, analysis: SessionAnalysisSummary) -> None:
     if not analysis.detections:
         return
@@ -331,13 +360,27 @@ def finish_sleep_session(
             session.ambient_noise_level = analysis.ambient_noise_level
         _persist_detection_logs(db=db, session_id=session_id, analysis=analysis)
     else:
-        # Sin fragmentos de audio no hay inferencia: usamos lo reportado por el
-        # usuario y lo marcamos explicitamente para no presentarlo como medido.
-        session.snore_count = payload.snore_count
-        session.apnea_events = payload.apnea_events
-        session.model_source = None
-        session.model_version = None
-        session.continuity_timeline = []
+        # Sin análisis de audio del servidor, usamos las predicciones v3 que el
+        # teléfono calculó en vivo. Si tampoco hay, caemos a los contadores
+        # reportados por el teléfono (heurísticos) marcándolos como estimación.
+        if payload.predicciones:
+            live_analysis = _build_live_prediction_summary(
+                predicciones=payload.predicciones,
+                snore_count=payload.snore_count,
+                total_duration_seconds=total_duration_seconds,
+            )
+            session.snore_count = live_analysis.snore_count
+            session.apnea_events = live_analysis.apnea_events
+            session.continuity_timeline = live_analysis.continuity_timeline
+            session.model_source = live_analysis.model_source
+            session.model_version = live_analysis.model_version
+            _persist_detection_logs(db=db, session_id=session_id, analysis=live_analysis)
+        else:
+            session.snore_count = payload.snore_count
+            session.apnea_events = payload.apnea_events
+            session.model_source = None
+            session.model_version = None
+            session.continuity_timeline = []
         if payload.ambient_noise_level is not None:
             session.ambient_noise_level = payload.ambient_noise_level
 

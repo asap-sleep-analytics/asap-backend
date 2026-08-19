@@ -28,6 +28,17 @@ class SleepSessionFinishRequest(BaseModel):
     apnea_events: int = Field(default=0, ge=0)
     avg_oxygen: float | None = Field(default=None, ge=50, le=100)
     ambient_noise_level: float | None = Field(default=None, ge=0, le=120)
+    predicciones: list[LivePrediction] = Field(default_factory=list)
+
+
+class LivePrediction(BaseModel):
+    """Predicción v3 calculada en el teléfono para una ventana de 30s."""
+
+    window_index: int = 0
+    start_second: float = 0.0
+    end_second: float = 0.0
+    nivel: str
+    probabilidad: float = 0.0
 
 
 class SleepContinuityPoint(BaseModel):

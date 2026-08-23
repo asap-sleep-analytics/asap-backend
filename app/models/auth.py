@@ -71,7 +71,15 @@ class AuthTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    refresh_token: str | None = Field(
+        default=None,
+        description="Token de larga duración para renovar la sesión sin reingresar.",
+    )
     usuario: UserPublic
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=10, max_length=4096)
 
 
 class MessageResponse(BaseModel):

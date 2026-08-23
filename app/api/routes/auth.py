@@ -4,7 +4,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.rate_limit import rate_limit_dependency
-from app.core.security import create_access_token, get_current_user, revoke_user_tokens
+from app.core.security import (
+    decode_refresh_token,
+    get_current_user,
+    get_current_user_optional,
+    issue_session_tokens,
+    load_user_for_refresh,
+    revoke_user_tokens,
+)
 from app.db.models import User
 from app.db.session import get_db
 from app.models.auth import (
@@ -12,6 +19,7 @@ from app.models.auth import (
     EmailVerificationSendResponse,
     ForgotPasswordRequest,
     MessageResponse,
+    RefreshTokenRequest,
     ResetPasswordRequest,
     SocialLoginRequest,
     UserLoginRequest,
@@ -74,14 +82,35 @@ def social_login_endpoint(
 
 @router.post("/refresh", response_model=AuthTokenResponse)
 def refresh_token_endpoint(
-    current_user: User = Depends(get_current_user),
+    payload: Annotated[RefreshTokenRequest | None, Body()] = None,
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
 ) -> AuthTokenResponse:
-    token, expires_in = create_access_token(current_user.id, current_user.email, token_version=current_user.token_version)
+    """Renueva la sesión de forma persistente.
+
+    Prioriza el refresh token de larga duración enviado en el body (permite
+    renovar aunque el access token haya expirado, como en IG/FB/X). Si no se
+    envía, acepta un access token vigente vía header Authorization.
+    En ambos casos rota el refresh token entregando uno nuevo.
+    """
+    if payload and payload.refresh_token:
+        claims = decode_refresh_token(payload.refresh_token)
+        user = load_user_for_refresh(db, claims)
+    elif current_user is not None:
+        user = current_user
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión no válida. Inicia sesión nuevamente.",
+        )
+
+    access_token, expires_in, refresh_token, _ = issue_session_tokens(user)
     return AuthTokenResponse(
         mensaje="Token renovado exitosamente.",
-        access_token=token,
+        access_token=access_token,
         expires_in=expires_in,
-        usuario=get_profile(current_user),
+        refresh_token=refresh_token,
+        usuario=get_profile(user),
     )
 
 

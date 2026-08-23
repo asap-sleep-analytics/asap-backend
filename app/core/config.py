@@ -121,6 +121,10 @@ class Settings(BaseModel):
     auth_access_token_expires_minutes: int = Field(
         default_factory=lambda: _env_int("AUTH_ACCESS_TOKEN_EXPIRES_MINUTES", 15)
     )
+    auth_refresh_token_expires_days: int = Field(
+        default_factory=lambda: _env_int("AUTH_REFRESH_TOKEN_EXPIRES_DAYS", 30),
+        description="Días de vigencia del refresh token (sesión persistente estilo redes sociales).",
+    )
     auth_issuer: str = Field(default_factory=lambda: os.getenv("AUTH_ISSUER", "asap-backend"))
 
     google_client_ids: list[str] = Field(

@@ -7,7 +7,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, hash_password, revoke_user_tokens, verify_password
+from app.core.security import (
+    hash_password,
+    issue_session_tokens,
+    revoke_user_tokens,
+    verify_password,
+)
 from app.db.models import Lead, SleepDetectionLog, SleepSession, User, UserFeedback
 from app.models.auth import (
     AuthTokenResponse,
@@ -60,11 +65,12 @@ def _to_public_user(user: User) -> UserPublic:
 
 
 def _issue_auth_response(db: Session, user: User, mensaje: str) -> AuthTokenResponse:
-    token, expires_in = create_access_token(user.id, user.email, token_version=user.token_version)
+    token, expires_in, refresh_token, _refresh_expires_in = issue_session_tokens(user)
     return AuthTokenResponse(
         mensaje=mensaje,
         access_token=token,
         expires_in=expires_in,
+        refresh_token=refresh_token,
         usuario=_to_public_user(user),
     )
 

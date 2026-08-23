@@ -75,6 +75,52 @@ def _analysis_label(model_source: str | None, model_version: str | None) -> str 
     return f"Análisis con {model_source}"
 
 
+def _compute_ahi(apnea_events: int, start_time: datetime, end_time: datetime | None) -> float | None:
+    """Índice apnea-hipopnea: eventos por hora de sueño.
+
+    Solo tiene sentido en sesiones finalizadas con duración conocida.
+    """
+    if end_time is None:
+        return None
+
+    duration_hours = max((end_time - start_time).total_seconds() / 3600, 0)
+    if duration_hours <= 0:
+        return None
+
+    return round(apnea_events / duration_hours, 1)
+
+
+def _estimate_desaturations(spo2_samples: list[float], drop_pct: float = 3.0) -> int:
+    """Cuenta eventos de desaturación desde una curva de SpO2.
+
+    Regla: cada caída sostenida de al menos `drop_pct` puntos desde una
+    referencia alta (baseline grueso) cuenta como un evento. Esto es una
+    aproximación del criterio clínico (caída >= 3-4% sostenida).
+    """
+    if len(spo2_samples) < 3:
+        return 0
+
+    valid = [s for s in spo2_samples if s is not None and 50 <= s <= 100]
+    if len(valid) < 3:
+        return 0
+
+    baseline_reference = max(valid)
+    in_event = False
+    event_count = 0
+
+    for sample in valid:
+        if sample >= baseline_reference:
+            baseline_reference = sample
+
+        if not in_event and sample <= baseline_reference - drop_pct:
+            in_event = True
+            event_count += 1
+        elif in_event and sample > baseline_reference - (drop_pct - 1):
+            in_event = False
+
+    return event_count
+
+
 def _to_record(session: SleepSession) -> SleepSessionRecord:
     timeline_raw = session.continuity_timeline or []
     timeline = [SleepContinuityPoint(**item) for item in timeline_raw]
@@ -85,6 +131,8 @@ def _to_record(session: SleepSession) -> SleepSessionRecord:
         end_time=session.end_time,
         snore_count=session.snore_count,
         apnea_events=session.apnea_events,
+        desaturation_count=session.desaturation_count,
+        ahi=_compute_ahi(session.apnea_events, session.start_time, session.end_time),
         avg_oxygen=session.avg_oxygen,
         ambient_noise_level=session.ambient_noise_level,
         sleep_score=session.sleep_score,
@@ -386,6 +434,13 @@ def finish_sleep_session(
 
     session.avg_oxygen = payload.avg_oxygen
 
+    # Desaturaciones: si el teléfono envió la curva, la analizamos; si no,
+    # aceptamos el contador que ya calculó o dejamos 0.
+    if payload.spo2_samples:
+        session.desaturation_count = _estimate_desaturations(list(payload.spo2_samples))
+    else:
+        session.desaturation_count = max(0, payload.desaturation_count)
+
     session.sleep_score = _compute_sleep_score(
         start_time=start_time,
         end_time=end_time,
@@ -574,3 +629,60 @@ async def ingest_sleep_fragment(
             created_at=created_at,
         ),
     )
+
+
+def get_sleep_session_detail(
+    db: Session,
+    user: User,
+    session_id: str,
+) -> SleepSessionRecord:
+    session = get_user_sleep_session(db, session_id, user)
+    if not session:
+        raise SessionNotFoundError()
+    return _to_record(session)
+
+
+def delete_sleep_session(
+    db: Session,
+    user: User,
+    session_id: str,
+) -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import SleepDetectionLog, UserFeedback
+
+    session = get_user_sleep_session(db, session_id, user)
+    if not session:
+        raise SessionNotFoundError()
+
+    db.execute(delete(SleepDetectionLog).where(SleepDetectionLog.session_id == session_id))
+    db.execute(delete(UserFeedback).where(UserFeedback.session_id == session_id))
+    db.delete(session)
+    db.commit()
+    _clear_session_fragment_state(session_id)
+
+
+def delete_all_sleep_sessions(
+    db: Session,
+    user: User,
+) -> int:
+    from sqlalchemy import delete
+
+    from app.db.models import SleepDetectionLog, UserFeedback
+
+    session_ids = db.scalars(
+        select(SleepSession.id).where(SleepSession.user_id == user.id)
+    ).all()
+
+    if not session_ids:
+        return 0
+
+    db.execute(delete(SleepDetectionLog).where(SleepDetectionLog.session_id.in_(session_ids)))
+    db.execute(delete(UserFeedback).where(UserFeedback.session_id.in_(session_ids)))
+    db.execute(delete(SleepSession).where(SleepSession.user_id == user.id))
+    db.commit()
+
+    for session_id in session_ids:
+        _clear_session_fragment_state(session_id)
+
+    return len(session_ids)

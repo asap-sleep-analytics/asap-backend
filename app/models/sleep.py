@@ -26,7 +26,9 @@ class SleepSessionFinishRequest(BaseModel):
     end_time: datetime | None = None
     snore_count: int = Field(default=0, ge=0)
     apnea_events: int = Field(default=0, ge=0)
+    desaturation_count: int = Field(default=0, ge=0)
     avg_oxygen: float | None = Field(default=None, ge=50, le=100)
+    spo2_samples: list[float] = Field(default_factory=list)
     ambient_noise_level: float | None = Field(default=None, ge=0, le=120)
     predicciones: list[LivePrediction] = Field(default_factory=list)
 
@@ -53,6 +55,8 @@ class SleepSessionRecord(BaseModel):
     end_time: datetime | None
     snore_count: int
     apnea_events: int
+    desaturation_count: int = 0
+    ahi: float | None = None
     avg_oxygen: float | None
     ambient_noise_level: float | None
     sleep_score: int | None

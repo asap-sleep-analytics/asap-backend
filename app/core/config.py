@@ -78,6 +78,25 @@ class Settings(BaseModel):
     )
     lead_token_ttl_hours: int = Field(default_factory=lambda: _env_int("LEAD_TOKEN_TTL_HOURS", 24))
 
+    auth_email_verify_url_base: str = Field(
+        default_factory=lambda: os.getenv(
+            "AUTH_EMAIL_VERIFY_URL_BASE",
+            "http://127.0.0.1:8000/api/v1/auth/email/verificar",
+        )
+    )
+    auth_email_verify_token_ttl_minutes: int = Field(
+        default_factory=lambda: _env_int("AUTH_EMAIL_VERIFY_TOKEN_TTL_MINUTES", 60)
+    )
+    auth_password_reset_url_base: str = Field(
+        default_factory=lambda: os.getenv(
+            "AUTH_PASSWORD_RESET_URL_BASE",
+            "http://127.0.0.1:8000/api/v1/auth/password/restablecer",
+        )
+    )
+    auth_password_reset_token_ttl_minutes: int = Field(
+        default_factory=lambda: _env_int("AUTH_PASSWORD_RESET_TOKEN_TTL_MINUTES", 30)
+    )
+
     smtp_host: str | None = Field(default_factory=lambda: os.getenv("SMTP_HOST"))
     smtp_port: int | None = Field(default_factory=lambda: _env_optional_int("SMTP_PORT"))
     smtp_provider: str = Field(default_factory=lambda: os.getenv("SMTP_PROVIDER", "custom"))
@@ -102,7 +121,18 @@ class Settings(BaseModel):
     auth_access_token_expires_minutes: int = Field(
         default_factory=lambda: _env_int("AUTH_ACCESS_TOKEN_EXPIRES_MINUTES", 15)
     )
+    auth_refresh_token_expires_days: int = Field(
+        default_factory=lambda: _env_int("AUTH_REFRESH_TOKEN_EXPIRES_DAYS", 30),
+        description="Días de vigencia del refresh token (sesión persistente estilo redes sociales).",
+    )
     auth_issuer: str = Field(default_factory=lambda: os.getenv("AUTH_ISSUER", "asap-backend"))
+
+    google_client_ids: list[str] = Field(
+        default_factory=lambda: _env_list("GOOGLE_CLIENT_ID", []),
+        description="Client IDs de Google OAuth (Web/Android/iOS) separados por coma. Se validan como audiencia.",
+    )
+    apple_client_id: str | None = Field(default_factory=lambda: os.getenv("APPLE_CLIENT_ID") or None)
+    apple_team_id: str | None = Field(default_factory=lambda: os.getenv("APPLE_TEAM_ID") or None)
 
     admin_dataset_export_key: str = Field(
         default_factory=lambda: os.getenv("ADMIN_DATASET_EXPORT_KEY", "asap-admin-dev-key")

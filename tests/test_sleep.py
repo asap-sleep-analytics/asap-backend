@@ -19,6 +19,7 @@ def _register(client: TestClient, email: str) -> str:
             "nombre_completo": "Sleep Tester",
             "email": email,
             "password": "ClaveSegura123",
+            "acepta_terminos_condiciones": True,
             "acepta_consentimiento_datos": True,
             "acepta_disclaimer_medico": True,
         },
@@ -215,9 +216,10 @@ def test_listar_detecciones_por_sesion(client: TestClient) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert isinstance(body, list)
-    assert len(body) >= 1
-    first = body[0]
+    assert "items" in body
+    assert "next_cursor" in body
+    assert len(body["items"]) >= 1
+    first = body["items"][0]
     assert first["session_id"] == session_id
     assert first["label"] in {"Normal", "Ronquido", "Apnea"}
     assert 0 <= first["confidence_score"] <= 1

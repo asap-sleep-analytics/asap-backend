@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,9 @@ from app.db.base import Base
 
 class SleepSession(Base):
     __tablename__ = "sleep_sessions"
+    __table_args__ = (
+        Index("ix_sleep_sessions_user_start", "user_id", text("start_time DESC")),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -18,6 +21,7 @@ class SleepSession(Base):
 
     snore_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     apnea_events: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    desaturation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     avg_oxygen: Mapped[float | None] = mapped_column(Float, nullable=True)
     ambient_noise_level: Mapped[float | None] = mapped_column(Float, nullable=True)
     sleep_score: Mapped[int | None] = mapped_column(Integer, nullable=True)

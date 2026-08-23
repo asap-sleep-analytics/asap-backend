@@ -9,7 +9,6 @@ from app.db.session import get_db
 from app.models.sleep import (
     SleepCalibrationRequest,
     SleepCalibrationResponse,
-    SleepDetectionLogRecord,
     SleepFeedbackRequest,
     SleepFeedbackResponse,
     SleepFragmentUploadResponse,
@@ -18,8 +17,11 @@ from app.models.sleep import (
     SleepSessionStartRequest,
 )
 from app.services.sleep import (
+    delete_all_sleep_sessions,
+    delete_sleep_session,
     evaluate_noise_level,
     finish_sleep_session,
+    get_sleep_session_detail,
     ingest_sleep_fragment,
     list_sleep_detection_logs,
     list_sleep_sessions,
@@ -74,6 +76,33 @@ def list_sessions_endpoint(
     return {"items": items, "next_cursor": next_cursor, "has_more": next_cursor is not None}
 
 
+@router.get("/sesiones/{session_id}", response_model=SleepSessionResponse)
+def get_session_detail_endpoint(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SleepSessionResponse:
+    session = get_sleep_session_detail(db=db, user=current_user, session_id=session_id)
+    return SleepSessionResponse(mensaje="Detalle de sesión.", sesion=session)
+
+
+@router.delete("/sesiones/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_session_endpoint(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    delete_sleep_session(db=db, user=current_user, session_id=session_id)
+
+
+@router.delete("/sesiones", status_code=status.HTTP_204_NO_CONTENT)
+def delete_all_sessions_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    delete_all_sleep_sessions(db=db, user=current_user)
+
+
 @router.post("/sesiones/{session_id}/feedback", response_model=SleepFeedbackResponse)
 def upsert_session_feedback_endpoint(
     session_id: str,
@@ -89,14 +118,25 @@ def upsert_session_feedback_endpoint(
     return SleepFeedbackResponse(mensaje="Feedback guardado correctamente.", feedback=feedback)
 
 
-@router.get("/sesiones/{session_id}/detecciones", response_model=list[SleepDetectionLogRecord])
+@router.get("/sesiones/{session_id}/detecciones")
 def list_session_detections_endpoint(
     session_id: str,
     limit: int = Query(default=720, ge=1, le=3000),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[SleepDetectionLogRecord]:
-    return list_sleep_detection_logs(db=db, user=current_user, session_id=session_id, limit=limit)
+) -> dict:
+    try:
+        items, next_cursor = list_sleep_detection_logs(
+            db=db,
+            user=current_user,
+            session_id=session_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"items": items, "next_cursor": next_cursor, "has_more": next_cursor is not None}
 
 
 @router.post(

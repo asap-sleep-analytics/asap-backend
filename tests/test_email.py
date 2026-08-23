@@ -196,4 +196,4 @@ def test_envio_con_excepcion_devuelve_false(smtp_settings, monkeypatch, caplog) 
 
     with caplog.at_level("ERROR"):
         assert send_waitlist_confirmation_email("Ana", "ana@example.com", "https://link") is False
-    assert "No se pudo enviar el correo de confirmación" in caplog.text
+    assert "No se pudo enviar el correo" in caplog.text

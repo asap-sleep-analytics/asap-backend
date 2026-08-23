@@ -15,6 +15,7 @@ from app.core.exceptions import (
 )
 from app.db.models import SleepDetectionLog, SleepSession, User, UserFeedback
 from app.models.sleep import (
+    LivePrediction,
     SleepCalibrationResponse,
     SleepContinuityPoint,
     SleepDetectionLogRecord,
@@ -28,7 +29,7 @@ from app.models.sleep import (
 )
 from app.repositories.sleep_sessions import get_user_sleep_session
 from app.services.audio_processor import build_session_audio_batch, cleanup_session_fragments
-from app.services.ml_service import LABEL_APNEA, LABEL_SNORE, SleepModel, WindowDetection
+from app.services.ml_service import LABEL_APNEA, LABEL_NORMAL, LABEL_SNORE, SleepModel, WindowDetection
 
 _FRAGMENT_ROOT = Path(settings.sleep_fragment_root)
 _ALLOWED_AUDIO_EXTENSIONS = {".m4a", ".wav", ".aac", ".mp4", ".caf"}
@@ -69,7 +70,55 @@ def _analysis_label(model_source: str | None, model_version: str | None) -> str 
         return "Análisis con modelo de sueño entrenado"
     if model_source == "heuristic":
         return "Análisis estimado con heurística de audio"
+    if model_source == "ml_v3":
+        return "Análisis con modelo v3 (audio + SpO2)"
     return f"Análisis con {model_source}"
+
+
+def _compute_ahi(apnea_events: int, start_time: datetime, end_time: datetime | None) -> float | None:
+    """Índice apnea-hipopnea: eventos por hora de sueño.
+
+    Solo tiene sentido en sesiones finalizadas con duración conocida.
+    """
+    if end_time is None:
+        return None
+
+    duration_hours = max((end_time - start_time).total_seconds() / 3600, 0)
+    if duration_hours <= 0:
+        return None
+
+    return round(apnea_events / duration_hours, 1)
+
+
+def _estimate_desaturations(spo2_samples: list[float], drop_pct: float = 3.0) -> int:
+    """Cuenta eventos de desaturación desde una curva de SpO2.
+
+    Regla: cada caída sostenida de al menos `drop_pct` puntos desde una
+    referencia alta (baseline grueso) cuenta como un evento. Esto es una
+    aproximación del criterio clínico (caída >= 3-4% sostenida).
+    """
+    if len(spo2_samples) < 3:
+        return 0
+
+    valid = [s for s in spo2_samples if s is not None and 50 <= s <= 100]
+    if len(valid) < 3:
+        return 0
+
+    baseline_reference = max(valid)
+    in_event = False
+    event_count = 0
+
+    for sample in valid:
+        if sample >= baseline_reference:
+            baseline_reference = sample
+
+        if not in_event and sample <= baseline_reference - drop_pct:
+            in_event = True
+            event_count += 1
+        elif in_event and sample > baseline_reference - (drop_pct - 1):
+            in_event = False
+
+    return event_count
 
 
 def _to_record(session: SleepSession) -> SleepSessionRecord:
@@ -82,6 +131,8 @@ def _to_record(session: SleepSession) -> SleepSessionRecord:
         end_time=session.end_time,
         snore_count=session.snore_count,
         apnea_events=session.apnea_events,
+        desaturation_count=session.desaturation_count,
+        ahi=_compute_ahi(session.apnea_events, session.start_time, session.end_time),
         avg_oxygen=session.avg_oxygen,
         ambient_noise_level=session.ambient_noise_level,
         sleep_score=session.sleep_score,
@@ -237,6 +288,32 @@ def _analyze_session_fragments(session_id: str, total_duration_seconds: float) -
     )
 
 
+def _build_live_prediction_summary(predicciones: list[LivePrediction], snore_count: int, total_duration_seconds: float) -> SessionAnalysisSummary:
+    apnea_events = sum(1 for pred in predicciones if pred.nivel in {"ALERTA", "CRITICO"})
+    detections = [
+        WindowDetection(
+            window_index=pred.window_index,
+            start_second=pred.start_second,
+            end_second=pred.end_second,
+            label=LABEL_APNEA if pred.nivel in {"ALERTA", "CRITICO"} else LABEL_NORMAL,
+            confidence=float(max(0.05, min(0.99, pred.probabilidad))),
+        )
+        for pred in predicciones
+    ]
+    return SessionAnalysisSummary(
+        snore_count=snore_count,
+        apnea_events=apnea_events,
+        continuity_timeline=_build_continuity_timeline_from_detections(
+            detections=detections,
+            duration_seconds=total_duration_seconds,
+        ),
+        ambient_noise_level=None,
+        detections=detections,
+        model_source="ml_v3",
+        model_version="v3",
+    )
+
+
 def _persist_detection_logs(db: Session, session_id: str, analysis: SessionAnalysisSummary) -> None:
     if not analysis.detections:
         return
@@ -331,17 +408,38 @@ def finish_sleep_session(
             session.ambient_noise_level = analysis.ambient_noise_level
         _persist_detection_logs(db=db, session_id=session_id, analysis=analysis)
     else:
-        # Sin fragmentos de audio no hay inferencia: usamos lo reportado por el
-        # usuario y lo marcamos explicitamente para no presentarlo como medido.
-        session.snore_count = payload.snore_count
-        session.apnea_events = payload.apnea_events
-        session.model_source = None
-        session.model_version = None
-        session.continuity_timeline = []
+        # Sin análisis de audio del servidor, usamos las predicciones v3 que el
+        # teléfono calculó en vivo. Si tampoco hay, caemos a los contadores
+        # reportados por el teléfono (heurísticos) marcándolos como estimación.
+        if payload.predicciones:
+            live_analysis = _build_live_prediction_summary(
+                predicciones=payload.predicciones,
+                snore_count=payload.snore_count,
+                total_duration_seconds=total_duration_seconds,
+            )
+            session.snore_count = live_analysis.snore_count
+            session.apnea_events = live_analysis.apnea_events
+            session.continuity_timeline = live_analysis.continuity_timeline
+            session.model_source = live_analysis.model_source
+            session.model_version = live_analysis.model_version
+            _persist_detection_logs(db=db, session_id=session_id, analysis=live_analysis)
+        else:
+            session.snore_count = payload.snore_count
+            session.apnea_events = payload.apnea_events
+            session.model_source = None
+            session.model_version = None
+            session.continuity_timeline = []
         if payload.ambient_noise_level is not None:
             session.ambient_noise_level = payload.ambient_noise_level
 
     session.avg_oxygen = payload.avg_oxygen
+
+    # Desaturaciones: si el teléfono envió la curva, la analizamos; si no,
+    # aceptamos el contador que ya calculó o dejamos 0.
+    if payload.spo2_samples:
+        session.desaturation_count = _estimate_desaturations(list(payload.spo2_samples))
+    else:
+        session.desaturation_count = max(0, payload.desaturation_count)
 
     session.sleep_score = _compute_sleep_score(
         start_time=start_time,
@@ -363,22 +461,27 @@ def list_sleep_sessions(
     limit: int = 20,
     cursor: str | None = None,
 ) -> tuple[list[SleepSessionRecord], str | None]:
+    from app.models.pagination import decode_cursor_parts, encode_cursor_parts
+
     query = select(SleepSession).where(SleepSession.user_id == user.id)
 
     if cursor:
-        from app.models.pagination import decode_cursor
-        cursor_dt = datetime.fromisoformat(decode_cursor(cursor))
-        query = query.where(SleepSession.start_time < cursor_dt)
+        start_time_iso, row_id = decode_cursor_parts(cursor)
+        cursor_dt = datetime.fromisoformat(start_time_iso)
+        query = query.where(
+            (SleepSession.start_time < cursor_dt)
+            | ((SleepSession.start_time == cursor_dt) & (SleepSession.id < row_id))
+        )
 
-    query = query.order_by(SleepSession.start_time.desc()).limit(limit + 1)
+    query = query.order_by(SleepSession.start_time.desc(), SleepSession.id.desc()).limit(limit + 1)
     rows = db.scalars(query).all()
 
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor: str | None = None
     if has_more and items:
-        from app.models.pagination import encode_cursor
-        next_cursor = encode_cursor(items[-1].start_time.isoformat())
+        last = items[-1]
+        next_cursor = encode_cursor_parts([last.start_time.isoformat(), last.id])
 
     return [_to_record(item) for item in items], next_cursor
 
@@ -388,17 +491,35 @@ def list_sleep_detection_logs(
     user: User,
     session_id: str,
     limit: int = 720,
-) -> list[SleepDetectionLogRecord]:
+    cursor: str | None = None,
+) -> tuple[list[SleepDetectionLogRecord], str | None]:
+    from app.models.pagination import decode_cursor_parts, encode_cursor_parts
+
     session = get_user_sleep_session(db, session_id, user)
     if not session:
         raise SessionNotFoundError()
 
-    rows = db.scalars(
+    query = (
         select(SleepDetectionLog)
         .where(SleepDetectionLog.session_id == session_id)
         .order_by(SleepDetectionLog.window_index.asc(), SleepDetectionLog.id.asc())
-        .limit(limit)
-    ).all()
+    )
+
+    if cursor:
+        window_str, row_id = decode_cursor_parts(cursor)
+        query = query.where(
+            (SleepDetectionLog.window_index > int(window_str))
+            | ((SleepDetectionLog.window_index == int(window_str)) & (SleepDetectionLog.id > int(row_id)))
+        )
+
+    rows = db.scalars(query.limit(limit + 1)).all()
+
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_cursor: str | None = None
+    if has_more and items:
+        last = items[-1]
+        next_cursor = encode_cursor_parts([str(last.window_index), str(last.id)])
 
     return [
         SleepDetectionLogRecord(
@@ -413,8 +534,8 @@ def list_sleep_detection_logs(
             model_version=row.model_version,
             created_at=row.created_at,
         )
-        for row in rows
-    ]
+        for row in items
+    ], next_cursor
 
 
 def upsert_sleep_feedback(
@@ -508,3 +629,60 @@ async def ingest_sleep_fragment(
             created_at=created_at,
         ),
     )
+
+
+def get_sleep_session_detail(
+    db: Session,
+    user: User,
+    session_id: str,
+) -> SleepSessionRecord:
+    session = get_user_sleep_session(db, session_id, user)
+    if not session:
+        raise SessionNotFoundError()
+    return _to_record(session)
+
+
+def delete_sleep_session(
+    db: Session,
+    user: User,
+    session_id: str,
+) -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import SleepDetectionLog, UserFeedback
+
+    session = get_user_sleep_session(db, session_id, user)
+    if not session:
+        raise SessionNotFoundError()
+
+    db.execute(delete(SleepDetectionLog).where(SleepDetectionLog.session_id == session_id))
+    db.execute(delete(UserFeedback).where(UserFeedback.session_id == session_id))
+    db.delete(session)
+    db.commit()
+    _clear_session_fragment_state(session_id)
+
+
+def delete_all_sleep_sessions(
+    db: Session,
+    user: User,
+) -> int:
+    from sqlalchemy import delete
+
+    from app.db.models import SleepDetectionLog, UserFeedback
+
+    session_ids = db.scalars(
+        select(SleepSession.id).where(SleepSession.user_id == user.id)
+    ).all()
+
+    if not session_ids:
+        return 0
+
+    db.execute(delete(SleepDetectionLog).where(SleepDetectionLog.session_id.in_(session_ids)))
+    db.execute(delete(UserFeedback).where(UserFeedback.session_id.in_(session_ids)))
+    db.execute(delete(SleepSession).where(SleepSession.user_id == user.id))
+    db.commit()
+
+    for session_id in session_ids:
+        _clear_session_fragment_state(session_id)
+
+    return len(session_ids)

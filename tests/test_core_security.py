@@ -126,24 +126,22 @@ def test_decode_token_con_firma_de_otra_clave_lanza_401() -> None:
     assert exc_info.value.status_code == 401
 
 
-def test_revoke_user_tokens_incrementa_version(client) -> None:
+def test_revoke_user_tokens_incrementa_version(db_session) -> None:
     from app.db.models import User
-    from app.db.session import SessionLocal
 
     user = User(
         full_name="Revoca Test",
         email=f"revoca-{uuid.uuid4().hex}@example.com",
         password_hash="hasheado",
     )
-    with SessionLocal() as db:
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        version_inicial = user.token_version
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    version_inicial = user.token_version
 
-        revoke_user_tokens(db, user)
-        db.refresh(user)
-        assert user.token_version == version_inicial + 1
+    revoke_user_tokens(db_session, user)
+    db_session.refresh(user)
+    assert user.token_version == version_inicial + 1
 
 
 def test_token_expira_realmente_con_el_tiempo(client) -> None:
